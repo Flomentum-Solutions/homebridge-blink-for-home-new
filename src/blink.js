@@ -532,7 +532,7 @@ class Blink {
                 log('getCameraStatus()');
                 await anonymize(this.blinkAPI.getCameraStatus(camera.network_id, camera.id, 0));
                 log('getCameraLiveViewV6()');
-                await anonymize(this.blinkAPI.getCameraLiveViewV6(camera.network_id, camera.id)));
+                await anonymize(this.blinkAPI.getCameraLiveViewV6(camera.network_id, camera.id));
                 log('getDevice()');
                 await anonymize(this.blinkAPI.getDevice(camera.serial));
             }
