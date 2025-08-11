@@ -1,24 +1,25 @@
 /* eslint-disable require-jsdoc */
 const crypto = require('crypto');
-const {fetch, reset} = require('@adobe/fetch');
+const { limitedFetch } = require('./util/http');
 
-const {sleep} = require('./utils');
+const { sleep } = require('./utils');
 const IniFile = require('./inifile');
-const {log} = require('./log');
-const {stringify} = require('./stringify');
+const { log } = require('./log');
+const { stringify } = require('./stringify');
 // const stringify = JSON.stringify;
 // crypto.randomBytes(16).toString("hex").toUpperCase().replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5")
 const DEFAULT_BLINK_CLIENT_UUID = '1EAF7C88-2AAB-BC51-038D-DB96D6EEE22F';
 const BLINK_API_HOST = 'immedia-semi.com';
+const PROD_BASE = `https://rest-prod.${BLINK_API_HOST}`;
 const CACHE = new Map();
 
 const DEFAULT_CLIENT_OPTIONS = {
     notificationKey: null,
-    device: 'iPhone15,2',
+    device: 'iPhone16,2',
     type: 'ios',
     name: 'iPhone',
-    appVersion: '6.18.0 (2210101952) #bd574f02a-mod',
-    os: '16.1',
+    appVersion: '46.0 (2507161422)',
+    os: '18.6',
 };
 
 /* eslint-disable */
@@ -79,7 +80,7 @@ const DEFAULT_CLIENT_OPTIONS = {
  * /api/v1/accounts/{accountId}/networks/{network_id}/doorbells/{doorbell_id}/owl_as_chime/update
  * /api/v1/accounts/{accountId}/networks/{network_id}/doorbells/{doorbell_id}/stay_awake/
  * /api/v1/accounts/{accountId}/networks/{network_id}/state/disarm
- * /api/v5/accounts/{accountId}/networks/{network}/cameras/{camera}/liveview
+ * /api/v6/accounts/{accountId}/networks/{network}/cameras/{camera}/liveview
  * /api/v1/accounts/{accountId}/networks/{network}/cameras/{camera}/zones
  * /api/v1/accounts/{accountId}/networks/{network}/doorbells/add
  * /api/v1/accounts/{accountId}/networks/{network}/doorbells/{doorbell}/chime/{chimeType}/config
@@ -170,7 +171,7 @@ const DEFAULT_CLIENT_OPTIONS = {
 /* eslint-enable */
 
 class BlinkAPI {
-    constructor(clientUUID, auth = {path: '~/.blink', section: 'default'}) {
+    constructor(clientUUID, auth = { path: '~/.blink', section: 'default' }) {
         const ini = IniFile.read(process.env.BLINK || auth.path, process.env.BLINK_SECTION || auth.section);
         this.auth = Object.assign({
             email: process.env.BLINK_EMAIL || ini.email,
@@ -187,7 +188,7 @@ class BlinkAPI {
     }
 
     get region() {
-        return this._region || 'prod';
+        return process.env.BLINK_REGION || this._region || 'prod';
     }
 
     set token(val) {
@@ -252,16 +253,16 @@ class BlinkAPI {
         }
 
         const headers = {
-            'User-Agent': 'Blink/2210101952 CFNetwork/1399 Darwin/22.1.0',
-            'app-build': 'IOS_2210101952',
+            'User-Agent': 'Blink/2507161422 CFNetwork/3826.600.41 Darwin/24.6.0',
+            'app-build': '2507161422',
             'Locale': 'en_US',
-            'x-blink-time-zone': 'America/New York',
-            'accept-language': 'en_US',
+            'x-blink-time-zone': 'America/New_York',
+            'accept-language': 'en-US',
             'Accept': '*/*',
         };
         if (this.token) headers['TOKEN_AUTH'] = this.token;
 
-        const options = {method, headers};
+        const options = { method, headers };
         if (body) {
             options.body = JSON.stringify(body);
             options.headers['Content-Type'] = 'application/json';
@@ -269,19 +270,31 @@ class BlinkAPI {
 
         log.info(`${method} ${targetPath} @${maxTTL}`);
         log.debug(options);
-        const urlPrefix = targetPath.startsWith('http') ?
-            '' :
-            `https://rest-${this.region || 'prod'}.${BLINK_API_HOST}`;
-        const res = await fetch(`${urlPrefix}${targetPath}`, options).catch(async e => {
+        // Build the base URL:
+        //  - absolute URLs pass through
+        //  - tier_info always hits rest-prod
+        //  - otherwise, hit the discovered region shard (u003, prde, etc.)
+        let urlPrefix = '';
+        if (!targetPath.startsWith('http')) {
+            if (targetPath === '/api/v1/account/tier_info') {
+                urlPrefix = PROD_BASE;
+            } else {
+                urlPrefix = `https://rest-${this.region || 'prod'}.${BLINK_API_HOST}`;
+            }
+        }
+
+        const res = await limitedFetch(`${urlPrefix}${targetPath}`, options).catch(async e => {
             if (!/ECONNRESET|ETIMEDOUT|ESOCKETTIMEDOUT|disconnected/.test(e.message)) log.error(e);
             // TODO: handle network errors more gracefully
             if (autologin) return null;
             return Promise.reject(e);
         });
-        if (!res || res === {}) {
+
+        if (!res || res == {}) {
             await this.login(true); // force a login on network connection loss
             return await this._request(method, path, body, maxTTL, false);
         }
+
         log.debug(res.status + ' ' + res.statusText);
         log.debug(Object.fromEntries(res.headers.entries()));
         // TODO: deal with network failures
@@ -468,7 +481,16 @@ class BlinkAPI {
             throw new Error(res.message);
         }
         else {
+            // Initialize with whatever the login tells us (older apps used account.tier='prod')
             this.init(res.auth?.token, res.account?.account_id, res.account?.client_id, res.account?.tier);
+            // Resolve the real shard (u003/prde/etc.) from tier_info on rest-prod if needed.
+            try {
+                const ti = await this.get('/api/v1/account/tier_info', 0, /*autologin*/ false, /*httpErrorAsError*/ false);
+                const discovered = ti?.tier || ti?.region || ti?.account?.tier;
+                if (discovered && discovered !== this.region) this.region = discovered;
+            } catch (e) {
+                log.warn('tier_info lookup failed; staying on region:', this.region, e?.message || e);
+            }
         }
         return res;
     }
@@ -822,7 +844,7 @@ class BlinkAPI {
     async deleteMedia(medialist = []) {
         if (!medialist || medialist.length === 0) return;
         if (!Array.isArray(medialist)) medialist = [medialist];
-        return await this.post(`/api/v1/accounts/{accountID}/media/delete`, {media_list: medialist});
+        return await this.post(`/api/v1/accounts/{accountID}/media/delete`, { media_list: medialist });
     }
 
     /**
@@ -1017,12 +1039,12 @@ class BlinkAPI {
      *      "target_id":4000001,"parent_command_id":null,"camera_id":4000001,"siren_id":null,"firmware_id":null,
      *      "network_id":2000001,"account_id":1000001,"sync_module_id":3000001}],"media_id":null}
      **/
-    async getCameraLiveViewV5(networkID, cameraID) {
+    async getCameraLiveViewV6(networkID, cameraID) {
         const data = {
             'intent': 'liveview',
             'motion_event_start_time': '',
         };
-        return await this.post(`/api/v5/accounts/{accountID}/networks/${networkID}/cameras/${cameraID}/liveview`, data);
+        return await this.post(`/api/v6/accounts/{accountID}/networks/${networkID}/cameras/${cameraID}/liveview`, data);
     }
 
     /**
@@ -1120,11 +1142,11 @@ class BlinkAPI {
     }
 
     async activateSiren(networkID, sirenID, duration = 30) {
-        return await this.post(`/api/v1/networks/${networkID}/sirens/${sirenID}/activate/`, {duration});
+        return await this.post(`/api/v1/networks/${networkID}/sirens/${sirenID}/activate/`, { duration });
     }
 
     async activateSirens(networkID, duration = 30) {
-        return await this.post(`/api/v1/networks/${networkID}/sirens/activate/`, {duration});
+        return await this.post(`/api/v1/networks/${networkID}/sirens/activate/`, { duration });
     }
 
     // async createSiren(networkID, addSirenNetworkBody) {

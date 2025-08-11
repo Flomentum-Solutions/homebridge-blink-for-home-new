@@ -23,6 +23,12 @@
                 "description": "The PIN sent during 2FA (leave blank on first use; enter after first auth attempt)",
                 "type": "number"
             },
+            "ffmpegPath": {
+                "title": "FFmpeg Path",
+                "type": "string",
+                "default": "/usr/bin/ffmpeg",
+                "description": "Optional absolute path to ffmpeg binary. If empty, plugin will attempt /usr/bin/ffmpeg."
+            },
             "hide-alarm": {
                 "title": "Hide Alarm (Security System)",
                 "placeholder": true,
@@ -88,8 +94,18 @@
                 "title": "Advanced Logging",
                 "type": "string",
                 "oneOf": [
-                    { "title": "Verbose", "enum": ["verbose"] },
-                    { "title": "Debug", "enum": ["debug"] }
+                    {
+                        "title": "Verbose",
+                        "enum": [
+                            "verbose"
+                        ]
+                    },
+                    {
+                        "title": "Debug",
+                        "enum": [
+                            "debug"
+                        ]
+                    }
                 ]
             },
             "enable-startup-diagnostic": {
@@ -105,22 +121,51 @@
         ]
     },
     "layout": [
-        { "key": "name", "title": "Name"},
-        { "key": "username", "title": "Credentials", "placeholder": "user@example.com" },
-        { "key": "password", "placeholder": "password", "notitle": true },
-        { "key": "pin", "placeholder": "2FA pin", "notitle": true },
-        { "type": "section", "title": "Features", "expandable": true, "expanded": false,
+        {
+            "key": "name",
+            "title": "Name"
+        },
+        {
+            "key": "username",
+            "title": "Credentials",
+            "placeholder": "user@example.com"
+        },
+        {
+            "key": "password",
+            "placeholder": "password",
+            "notitle": true
+        },
+        {
+            "key": "pin",
+            "placeholder": "2FA pin",
+            "notitle": true
+        },
+        {
+            "type": "section",
+            "title": "Features",
+            "expandable": true,
+            "expanded": false,
             "items": [
-                "hide-alarm", "hide-manual-arm-switch", "hide-enabled-switch", "hide-privacy-switch",
+                "hide-alarm",
+                "hide-manual-arm-switch",
+                "hide-enabled-switch",
+                "hide-privacy-switch",
                 "disable-thumbnail-refresh",
-                "hide-temperature-sensor", "enable-liveview"
+                "hide-temperature-sensor",
+                "enable-liveview"
             ]
         },
-        { "type": "section", "title": "Advanced Settings", "expandable": true, "expanded": false,
+        {
+            "type": "section",
+            "title": "Advanced Settings",
+            "expandable": true,
+            "expanded": false,
             "items": [
                 "camera-thumbnail-refresh-seconds",
-                "camera-status-polling-seconds", "camera-motion-polling-seconds",
-                "logging", "enable-startup-diagnostic"
+                "camera-status-polling-seconds",
+                "camera-motion-polling-seconds",
+                "logging",
+                "enable-startup-diagnostic"
             ]
         }
     ]

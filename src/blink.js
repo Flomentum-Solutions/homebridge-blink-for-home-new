@@ -1,8 +1,8 @@
-const {log} = require('./log');
+const { log } = require('./log');
 const BlinkAPI = require('./blink-api');
-const {sleep, fahrenheitToCelsius} = require('./utils');
+const { sleep, fahrenheitToCelsius } = require('./utils');
 const fs = require('fs');
-const {stringify} = require('./stringify');
+const { stringify } = require('./stringify');
 // const stringify = JSON.stringify;
 
 const THUMBNAIL_TTL = 60 * 60; // 1min
@@ -235,7 +235,7 @@ class BlinkCamera extends BlinkDevice {
         if (this.lowBattery) return 10;
 
         const fullStatus = await this.getFullStatus();
-        const alkalineVolts = Math.max((fullStatus?.camera_status?.battery_voltage || 1.8)/ 100, 0);
+        const alkalineVolts = Math.max((fullStatus?.camera_status?.battery_voltage || 1.8) / 100, 0);
 
         // AA and AAA Alkaline batteries are rated for 1.5V
         // assume battery voltage between 1.2V and 1.8V is acceptable and express it as a function of 20% to 100%
@@ -362,11 +362,11 @@ class Blink {
         network.commandID = commandID;
 
         const start = Date.now();
-        let cmd = await this.getCommand(networkID, commandID) || {complete: false};
+        let cmd = await this.getCommand(networkID, commandID) || { complete: false };
         while (cmd.complete === false) {
             await sleep(400);
             if (!network.commandID) break;
-            cmd = await this.getCommand(networkID, commandID) || {complete: false};
+            cmd = await this.getCommand(networkID, commandID) || { complete: false };
 
             if (timeout && Date.now() - start > timeout * 1000) {
                 await this.stopCommand(networkID, commandID);
@@ -385,16 +385,16 @@ class Blink {
         const start = Date.now();
 
         // if there is an error, we are going to retry for 15s and fail
-        let cmd = await Promise.resolve(fn()).catch(() => undefined) || {message: 'busy'};
+        let cmd = await Promise.resolve(fn()).catch(() => undefined) || { message: 'busy' };
         while (cmd.message && /busy/i.test(cmd.message)) {
             // TODO: should this be an error?
 
             log.info(`Sleeping ${busyWait}s: ${cmd.message}`);
             await sleep(busyWait * 1000);
             if (Date.now() - start > timeout * 1000) return;
-            cmd = await Promise.resolve(fn()).catch(() => undefined) || {message: 'busy'};
+            cmd = await Promise.resolve(fn()).catch(() => undefined) || { message: 'busy' };
         }
-        const remainingTimeout = timeout - ((Date.now() - start)/1000);
+        const remainingTimeout = timeout - ((Date.now() - start) / 1000);
         return await this._commandWaitAll(networkID, cmd, remainingTimeout);
     }
 
@@ -432,7 +432,7 @@ class Blink {
         anonMap.set(account?.phone_number, '5555555555');
         anonMap.set(account?.email, 'user@example.com');
         let curr = 1;
-        const NETWORK_NAMES=['BatCave', 'Fortress of Solitude', 'Ice Mountain'];
+        const NETWORK_NAMES = ['BatCave', 'Fortress of Solitude', 'Ice Mountain'];
         for (const network of homescreen?.networks || []) {
             anonMap.set(network?.id, 2000 + curr);
             anonMap.set(network?.name, NETWORK_NAMES[curr - 1]);
@@ -531,8 +531,8 @@ class Blink {
                 await anonymize(this.blinkAPI.getCameraSignals(camera.network_id, camera.id));
                 log('getCameraStatus()');
                 await anonymize(this.blinkAPI.getCameraStatus(camera.network_id, camera.id, 0));
-                // log('getCameraLiveViewV5()');
-                // await anonymize(this.blinkAPI.getCameraLiveViewV5(camera.network_id, camera.id)));
+                log('getCameraLiveViewV6()');
+                await anonymize(this.blinkAPI.getCameraLiveViewV6(camera.network_id, camera.id)));
                 log('getDevice()');
                 await anonymize(this.blinkAPI.getDevice(camera.serial));
             }
@@ -585,7 +585,7 @@ class Blink {
     }
 
     async authenticate() {
-        if (Date.now() < this.nextLoginAttempt ) {
+        if (Date.now() < this.nextLoginAttempt) {
             log.error('Too frequent logins, wait 5s');
             throw new Error('Too frequent logins, wait 5s');
         }
@@ -655,7 +655,7 @@ class Blink {
         let cmd = enabled ? this.blinkAPI.enableCameraMotion : await this.blinkAPI.disableCameraMotion;
         if (camera.isCameraMini) cmd = this.blinkAPI.updateOwlSettings;
 
-        const updateCameraPromise = async () => cmd.call(this.blinkAPI, networkID, cameraID, {enabled: enabled});
+        const updateCameraPromise = async () => cmd.call(this.blinkAPI, networkID, cameraID, { enabled: enabled });
         const commandPromise = async () => await this._command(networkID, updateCameraPromise);
         await this._lock(`setCameraMotionSensorState(${networkID}, ${cameraID})`, commandPromise);
 
@@ -802,7 +802,7 @@ class Blink {
     async getCameraLiveView(networkID, cameraID, timeout = 30) {
         const camera = this.cameras.get(cameraID);
 
-        let cmd = this.blinkAPI.getCameraLiveViewV5;
+        let cmd = this.blinkAPI.getCameraLiveViewV6;
         if (camera.isCameraMini) cmd = this.blinkAPI.getOwlLiveView;
 
         return await this._command(networkID, () => cmd.call(this.blinkAPI, networkID, cameraID), timeout);
@@ -822,4 +822,4 @@ Blink.STATUS_POLL = STATUS_POLL;
 Blink.ARMED_DELAY = ARMED_DELAY;
 Blink.MOTION_TRIGGER_DECAY = MOTION_TRIGGER_DECAY;
 
-module.exports = {Blink, BlinkDevice, BlinkCamera, BlinkNetwork};
+module.exports = { Blink, BlinkDevice, BlinkCamera, BlinkNetwork };

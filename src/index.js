@@ -1,5 +1,5 @@
-const {setHap} = require('./homebridge/hap');
-const {HomebridgeBlink} = require('./homebridge');
+const { setHap } = require('./homebridge/hap');
+const { HomebridgeBlink } = require('./homebridge');
 
 // Blink Security Platform Plugin for HomeBridge (https://github.com/colinbendell/homebridge-blink-for-home)
 //
@@ -10,11 +10,12 @@ const {HomebridgeBlink} = require('./homebridge');
 //         "name": "Blink",
 //         "username": "me@example.com",
 //         "password": "PASSWORD",
-//         "pin": "01234"
+//         "pin": "01234",
+//         "ffmpegPath": "/usr/bin/ffmpeg"
 //     }
 // ]
 
-module.exports = function(homebridge) {
+module.exports = function (homebridge) {
     setHap(homebridge.hap);
     homebridge.registerPlatform(HomebridgeBlink.PLUGIN_NAME, HomebridgeBlink.PLATFORM_NAME, HomebridgeBlink, true);
 

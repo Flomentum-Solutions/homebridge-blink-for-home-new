@@ -1,18 +1,18 @@
 #!/usr/bin/env node
-const {Command} = require('commander');
-const pathToFfmpeg = require('ffmpeg-for-homebridge');
-const {reservePorts} = require('@homebridge/camera-utils');
+const { Command } = require('commander');
+const { reservePorts } = require('@homebridge/camera-utils');
 
-const {spawn} = require('child_process');
+const { spawn } = require('child_process');
+let resolvedFfmpeg;
 const fs = require('fs');
 const tls = require('tls');
 const Crypto = require('crypto');
-const {tmpdir} = require('os');
+const { tmpdir } = require('os');
 const Path = require('path');
 
-const {Blink} = require('./blink');
-const {sleep} = require('./utils');
-const {Http2TLSTunnel} = require('./proxy');
+const { Blink } = require('./blink');
+const { sleep } = require('./utils');
+const { Http2TLSTunnel } = require('./proxy');
 
 const program = new Command();
 
@@ -25,6 +25,7 @@ const TERMINATE_ACTIONS = [(sig = 0) => {
     console.log('Done.');
     process.exit(sig);
 }];
+
 async function terminate(...args) {
     if (TERMINATE_ACTIONS.length === 0) return;
 
@@ -69,7 +70,7 @@ function prettyTree(name, value, indent = '', first = false) {
  * @param callback
  * @returns {Promise<void>}
  */
-async function withBlink(callback = () => {}) {
+async function withBlink(callback = () => { }) {
     const blink = new Blink();
     try {
         await callback(blink);
@@ -79,7 +80,7 @@ async function withBlink(callback = () => {}) {
         console.error(e.message);
     }
     finally {
-        await blink.blinkAPI.reset().catch(() => {});
+        await blink.blinkAPI.reset().catch(() => { });
     }
 }
 
@@ -100,12 +101,14 @@ async function login(options) {
         console.log('Success');
     });
 }
+
 async function logout(options) {
     await withBlink(async blink => {
         await blink.logout();
         console.log('Success');
     });
 }
+
 async function enable(id, options) {
     await withBlink(async blink => {
         const camera = await getCamera(blink, id);
@@ -114,6 +117,7 @@ async function enable(id, options) {
         console.log('Success');
     });
 }
+
 async function disable(id, options) {
     await withBlink(async blink => {
         const camera = await getCamera(blink, id);
@@ -138,7 +142,6 @@ async function disarm(id, options) {
         console.log('Success');
     });
 }
-
 
 async function list(options) {
     await withBlink(async blink => {
@@ -228,9 +231,20 @@ async function liveview(id, options) {
             if (options.save) {
                 const liveViewURL = res.server;
                 const [, protocol, host, path] = /([a-z]+):\/\/([^:/]+)(?::[0-9]+)?(\/.*)/.exec(liveViewURL) || [];
-                const ports = await reservePorts({count: 1});
+                const ports = await reservePorts({ count: 1 });
                 const listenPort = ports[0];
                 const filename = (new Date()).toISOString().replace(/[^0-9a-zA-Z-]/g, '_');
+
+
+                if (!resolvedFfmpeg) {
+                    // Order of preference: explicit config -> system ffmpeg
+                    const cfg = this.platform && this.platform.config || {};
+                    if (cfg.ffmpegPath && cfg.ffmpegPath.trim()) {
+                        resolvedFfmpeg = cfg.ffmpegPath.trim();
+                    } else {
+                        resolvedFfmpeg = '/usr/bin/ffmpeg';
+                    }
+                }
 
                 // This is a hack: for legacy systems we setup a TLS socket and set ffmpeg to use rtsp://
                 // for modern blink cameras we have to hack the immis:// protocol
@@ -259,7 +273,7 @@ async function liveview(id, options) {
                     ffmpegCommandClean.push(...videoffmpegCommand.flat().flatMap(c => c.split(' ')));
                     console.debug(ffmpegCommandClean);
 
-                    const ffmpegVideo = spawn(pathToFfmpeg || 'ffmpeg', ffmpegCommandClean, {env: process.env});
+                    const ffmpegVideo = spawn(resolvedFfmpeg || 'ffmpeg', ffmpegCommandClean, { env: process.env });
                     ffmpegVideo.stdout.on('data', data => {
                         console.info('VIDEO: ' + String(data));
                     });
@@ -321,7 +335,7 @@ async function liveview(id, options) {
                     // servername: host,
 
                     const tlsSocket = tls.connect(tlsOptions);
-                    tlsSocket.on('secureConnect', function() {
+                    tlsSocket.on('secureConnect', function () {
                         console.debug('connect to %s:%d success', tlsSocket.remoteAddress, tlsSocket.remotePort);
                         const id = path.replace(/[/]|__.*/g, '');
                         const dataPrefix = Buffer.from(new Uint8Array([
@@ -332,7 +346,7 @@ async function liveview(id, options) {
                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
                         ]));
-                        const dataSuffix =new Uint8Array([
+                        const dataSuffix = new Uint8Array([
                             0x00, 0x00, 0x00, 0x01, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                         ]);
                         // tlsSocket.pipe(ffmpegVideo.stdin);
@@ -399,7 +413,7 @@ async function liveview(id, options) {
                             }
                             console.debug(videoffmpegCommand.flat().flatMap(c => c.split(' ')));
                             const execCommands = videoffmpegCommand.flat().flatMap(c => c.split(' '));
-                            const ffmpegVideo = spawn(pathToFfmpeg || 'ffmpeg', execCommands, {env: process.env});
+                            const ffmpegVideo = spawn(resolvedFfmpeg || 'ffmpeg', execCommands, { env: process.env });
                             ffmpegVideo.stdout.on('data', data => {
                                 console.info('VIDEO: ' + String(data));
                             });
@@ -412,6 +426,12 @@ async function liveview(id, options) {
                                 }
                                 catch {
                                     // continue regardless of error
+                                }
+                            });
+                            ff.on('error', (err) => {
+                                this.log.error(`ffmpeg spawn error (${resolvedFfmpeg})`, err);
+                                if (err && err.code === 'ENOENT') {
+                                    this.log.error('ffmpeg not found. Set "ffmpegPath" in config or install ffmpeg.');
                                 }
                             });
                         }
@@ -545,8 +565,8 @@ program
     .command('disarm <camera>')
     .action(disarm);
 
-if (process.argv.indexOf('--debug') === -1) console.debug = () => {};
-if (process.argv.indexOf('--verbose') === -1 && process.argv.indexOf('--debug') === -1) console.info = () => {};
+if (process.argv.indexOf('--debug') === -1) console.debug = () => { };
+if (process.argv.indexOf('--verbose') === -1 && process.argv.indexOf('--debug') === -1) console.info = () => { };
 
 // program.parse(process.argv); // end with parse to parse through the input
 program.parseAsync();
