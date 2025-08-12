@@ -239,17 +239,21 @@ class BlinkAPI {
         if (autologin) await this.login();
         const targetPath = path.replace('{accountID}', this.accountID).replace('{clientID}', this.clientID);
 
-        if (CACHE.has(method + targetPath) && maxTTL > 0) {
-            const cache = CACHE.get(method + targetPath);
-            const lastModified = Date.parse(cache.headers.get('last-modified') || cache.headers.get('date') || 0);
-            if (lastModified + (maxTTL * 1000) > Date.now()) {
-                return cache._body;
+        const cacheKey = `${method}:${targetPath}`;
+        const now = Date.now();
+        if (CACHE.has(cacheKey) && (maxTTL || 0) > 0) {
+            const cache = CACHE.get(cacheKey);
+            // Fresh?
+            if ((cache.expiresAt || 0) > now) {
+                return cache.body;
             }
-            else {
-                // to avoid pile-ons, let's use stale cache for 10s
-                // TODO: make this work for cache misses too?
-                cache.headers.set('last-modified', (new Date(Date.now() + 3 * 1000)).toISOString());
+            // Briefly serve stale to avoid thundering herd while one request refreshes.
+            if ((cache.cooldownUntil || 0) > now) {
+                return cache.body;
             }
+            // Set a short cooldown; first requester will refetch.
+            cache.cooldownUntil = now + 3000; // 3s stale-while-revalidate
+            CACHE.set(cacheKey, cache);
         }
 
         const headers = {
@@ -299,19 +303,16 @@ class BlinkAPI {
         log.debug(Object.fromEntries(res.headers.entries()));
         // TODO: deal with network failures
 
-        if (/application\/json/.test(res.headers.get('content-type'))) {
-            const json = await res.json();
-            res._body = json; // stash it for the cache because .json() isn't re-callable
-            log.debug(stringify(json));
-        }
-        else if (/text/.test(res.headers.get('content-type'))) {
-            const txt = await res.text();
-            res._body = txt; // stash it for the cache because .json() isn't re-callable
-            log.debug(txt);
-        }
-        else {
-            // TODO: what happens if the buffer isn't fully consumed?
-            res._body = Buffer.from(await res.arrayBuffer());
+        let body;
+        const ct = res.headers.get('content-type') || '';
+        if (/application\/json/i.test(ct)) {
+            body = await res.json();
+            log.debug(stringify(body));
+        } else if (/text\//i.test(ct)) {
+            body = await res.text();
+            log.debug(body);
+        } else {
+            body = Buffer.from(await res.arrayBuffer());
         }
         if (res.status === 401) {
             // if the API call resulted in 401 Unauthorized (token expired?), try logging in again.
@@ -322,7 +323,7 @@ class BlinkAPI {
             // fallback
             // TODO: handle error states more gracefully
             log.error(`${method} ${targetPath} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
-            log.error(res?._body ?? Object.fromEntries(res.headers));
+            log.error(body ?? Object.fromEntries(res.headers));
             if (httpErrorAsError) {
                 throw new Error(res.headers.get('status'));
             }
@@ -342,7 +343,7 @@ class BlinkAPI {
         }
         else if (res.status === 409) {
             if (httpErrorAsError) {
-                if (!/busy/.test(res?._body?.message)) {
+                if (!/busy/.test(body?.message)) {
                     const status = res.headers.get('status') || res.status + ' ' + res.statusText;
                     throw new Error(`${method} ${targetPath} (${status})`);
                 }
@@ -351,22 +352,28 @@ class BlinkAPI {
         else if (res.status >= 400) {
             const status = res.headers.get('status') || res.status + ' ' + res.statusText;
             log.error(`${method} ${targetPath} (${status})`);
-            log.error(res?._body ?? Object.fromEntries(res.headers));
+            log.error(body ?? Object.fromEntries(res.headers));
             if (httpErrorAsError) {
                 throw new Error(`${method} ${targetPath} (${status})`);
             }
         }
         // TODO: what about other 3xx?
-        else if (res.status === 200) {
-            if (method === 'GET') {
-                CACHE.set(method + targetPath, res);
-            }
+        else if (res.status === 200 && method === 'GET') {
+            const ttlMs = (maxTTL || 0) * 1000;
+            CACHE.set(cacheKey, {
+                body,
+                status: res.status,
+                headers: Object.fromEntries(res.headers), // informational only
+                fetchedAt: now,
+                expiresAt: ttlMs ? now + ttlMs : 0,
+                cooldownUntil: 0
+            });
         }
 
         if (method !== 'GET') {
-            CACHE.delete('GET' + path);
+            CACHE.delete(`GET:${targetPath}`);
         }
-        return res._body;
+        return body;
     }
 
     async getUrl(url) {
