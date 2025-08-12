@@ -303,27 +303,27 @@ class BlinkAPI {
         log.debug(Object.fromEntries(res.headers.entries()));
         // TODO: deal with network failures
 
-        let body;
+        let respBody;
         const ct = res.headers.get('content-type') || '';
         if (/application\/json/i.test(ct)) {
-            body = await res.json();
-            log.debug(stringify(body));
+            respBody = await res.json();
+            log.debug(stringify(respBody));
         } else if (/text\//i.test(ct)) {
-            body = await res.text();
-            log.debug(body);
+            respBody = await res.text();
+            log.debug(respBody);
         } else {
-            body = Buffer.from(await res.arrayBuffer());
+            respBody = Buffer.from(await res.arrayBuffer());
         }
         if (res.status === 401) {
             // if the API call resulted in 401 Unauthorized (token expired?), try logging in again.
             if (autologin) {
                 await this.login(true);
-                return this._request(method, path, body, maxTTL, false, httpErrorAsError);
+                return this._request(method, path, respBody, maxTTL, false, httpErrorAsError);
             }
             // fallback
             // TODO: handle error states more gracefully
             log.error(`${method} ${targetPath} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
-            log.error(body ?? Object.fromEntries(res.headers));
+            log.error(respBody ?? Object.fromEntries(res.headers));
             if (httpErrorAsError) {
                 throw new Error(res.headers.get('status'));
             }
@@ -333,17 +333,17 @@ class BlinkAPI {
             log.error(`RETRY: ${method} ${targetPath} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
             this.token = null; // force a re-login if 5xx errors
             await sleep(1000);
-            return this._request(method, path, body, maxTTL, false, httpErrorAsError);
+            return this._request(method, path, respBody, maxTTL, false, httpErrorAsError);
         }
         else if (res.status === 429) {
             // TODO: how do we get out of infinite retry?
             log.error(`RETRY: ${method} ${targetPath} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
             await sleep(500);
-            return this._request(method, path, body, maxTTL, false, httpErrorAsError);
+            return this._request(method, path, respBody, maxTTL, false, httpErrorAsError);
         }
         else if (res.status === 409) {
             if (httpErrorAsError) {
-                if (!/busy/.test(body?.message)) {
+                if (!/busy/.test(respBody?.message)) {
                     const status = res.headers.get('status') || res.status + ' ' + res.statusText;
                     throw new Error(`${method} ${targetPath} (${status})`);
                 }
@@ -352,7 +352,7 @@ class BlinkAPI {
         else if (res.status >= 400) {
             const status = res.headers.get('status') || res.status + ' ' + res.statusText;
             log.error(`${method} ${targetPath} (${status})`);
-            log.error(body ?? Object.fromEntries(res.headers));
+            log.error(respBody ?? Object.fromEntries(res.headers));
             if (httpErrorAsError) {
                 throw new Error(`${method} ${targetPath} (${status})`);
             }
@@ -361,7 +361,7 @@ class BlinkAPI {
         else if (res.status === 200 && method === 'GET') {
             const ttlMs = (maxTTL || 0) * 1000;
             CACHE.set(cacheKey, {
-                body,
+                body: respBody,
                 status: res.status,
                 headers: Object.fromEntries(res.headers), // informational only
                 fetchedAt: now,
@@ -373,7 +373,7 @@ class BlinkAPI {
         if (method !== 'GET') {
             CACHE.delete(`GET:${targetPath}`);
         }
-        return body;
+        return respBody;
     }
 
     async getUrl(url) {
