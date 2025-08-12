@@ -1,7 +1,11 @@
-# homebridge-blink-for-home
+# homebridge-blink-for-home-new
 [![verified-by-homebridge](https://badgen.net/badge/homebridge/verified/purple)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
-[![npm](https://badgen.net/npm/v/homebridge-blink-for-home)](https://www.npmjs.com/package/homebridge-blink-for-home)
-[![npm](https://badgen.net/npm/dt/homebridge-blink-for-home)](https://www.npmjs.com/package/homebridge-blink-for-home)
+[![npm](https://badgen.net/npm/v/homebridge-blink-for-home)](https://www.npmjs.com/package/homebridge-blink-for-home-new)
+[![npm](https://badgen.net/npm/dt/homebridge-blink-for-home)](https://www.npmjs.com/package/homebridge-blink-for-home-new)
+
+## Legacy
+Thank you to @colinbendell and his foundational work on the original plugin: ![](https://github.com/colinbendell/homebridge-blink-for-home)
+Since he's archived his repo, I've spun this fork up to continue updates and hopefully enable more functionalities than previously available.
 
 <img src="https://github.com/colinbendell/homebridge-blink-for-home/raw/main/img/overview.jpg" width="200">
 
