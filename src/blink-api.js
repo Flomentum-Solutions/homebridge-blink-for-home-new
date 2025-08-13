@@ -234,7 +234,7 @@ class BlinkAPI {
         return this._request('POST', path, body, null, autologin, httpErrorAsError);
     }
 
-    async _request(method = 'GET', path = '/', body = null, maxTTL = null, autologin = true, httpErrorAsError = true) {
+    async _request(method = 'GET', path = '/', payload = null, maxTTL = null, autologin = true, httpErrorAsError = true) {
         // first invocation we refresh the API tokens
         if (autologin) await this.login();
         const targetPath = path.replace('{accountID}', this.accountID).replace('{clientID}', this.clientID);
@@ -264,11 +264,11 @@ class BlinkAPI {
             'accept-language': 'en-US',
             'Accept': '*/*',
         };
-        if (this.token) headers['TOKEN_AUTH'] = this.token;
+        if (this.token) headers['token-auth'] = this.token;
 
         const options = { method, headers };
-        if (body) {
-            options.body = JSON.stringify(body);
+        if (payload) {
+            options.body = JSON.stringify(payload);
             options.headers['Content-Type'] = 'application/json';
         }
 
@@ -276,11 +276,12 @@ class BlinkAPI {
         log.debug(options);
         // Build the base URL:
         //  - absolute URLs pass through
-        //  - tier_info always hits rest-prod
+        //  - tier_info must always hit the prod host regardless of shard
         //  - otherwise, hit the discovered region shard (u003, prde, etc.)
         let urlPrefix = '';
         if (!targetPath.startsWith('http')) {
             if (targetPath === '/api/v1/account/tier_info') {
+                // Blink expects tier_info on the prod host regardless of shard.
                 urlPrefix = PROD_BASE;
             } else {
                 urlPrefix = `https://rest-${this.region || 'prod'}.${BLINK_API_HOST}`;
@@ -296,7 +297,7 @@ class BlinkAPI {
 
         if (!res || res == {}) {
             await this.login(true); // force a login on network connection loss
-            return await this._request(method, path, body, maxTTL, false);
+            return await this._request(method, path, payload, maxTTL, false);
         }
 
         log.debug(res.status + ' ' + res.statusText);
@@ -318,12 +319,14 @@ class BlinkAPI {
             // if the API call resulted in 401 Unauthorized (token expired?), try logging in again.
             if (autologin) {
                 await this.login(true);
-                return this._request(method, path, respBody, maxTTL, false, httpErrorAsError);
+                return this._request(method, path, payload, maxTTL, false, httpErrorAsError);
             }
             // fallback
             // TODO: handle error states more gracefully
-            log.error(`${method} ${targetPath} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
-            log.error(respBody ?? Object.fromEntries(res.headers));
+            const statusMsg = res.headers.get('status') || (res.status + ' ' + res.statusText);
+            const logFn = httpErrorAsError ? log.error : log.debug;
+            logFn(`${method} ${targetPath} (${statusMsg})`);
+            logFn(respBody ?? Object.fromEntries(res.headers));
             if (httpErrorAsError) {
                 throw new Error(res.headers.get('status'));
             }
@@ -333,13 +336,13 @@ class BlinkAPI {
             log.error(`RETRY: ${method} ${targetPath} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
             this.token = null; // force a re-login if 5xx errors
             await sleep(1000);
-            return this._request(method, path, respBody, maxTTL, false, httpErrorAsError);
+            return this._request(method, path, payload, maxTTL, false, httpErrorAsError);
         }
         else if (res.status === 429) {
             // TODO: how do we get out of infinite retry?
             log.error(`RETRY: ${method} ${targetPath} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
             await sleep(500);
-            return this._request(method, path, respBody, maxTTL, false, httpErrorAsError);
+            return this._request(method, path, payload, maxTTL, false, httpErrorAsError);
         }
         else if (res.status === 409) {
             if (httpErrorAsError) {
@@ -351,8 +354,9 @@ class BlinkAPI {
         }
         else if (res.status >= 400) {
             const status = res.headers.get('status') || res.status + ' ' + res.statusText;
-            log.error(`${method} ${targetPath} (${status})`);
-            log.error(respBody ?? Object.fromEntries(res.headers));
+            const logFn2 = httpErrorAsError ? log.error : log.debug;
+            logFn2(`${method} ${targetPath} (${status})`);
+            logFn2(respBody ?? Object.fromEntries(res.headers));
             if (httpErrorAsError) {
                 throw new Error(`${method} ${targetPath} (${status})`);
             }
@@ -490,13 +494,16 @@ class BlinkAPI {
         else {
             // Initialize with whatever the login tells us (older apps used account.tier='prod')
             this.init(res.auth?.token, res.account?.account_id, res.account?.client_id, res.account?.tier);
-            // Resolve the real shard (u003/prde/etc.) from tier_info on rest-prod if needed.
-            try {
-                const ti = await this.get('/api/v1/account/tier_info', 0, /*autologin*/ false, /*httpErrorAsError*/ false);
-                const discovered = ti?.tier || ti?.region || ti?.account?.tier;
-                if (discovered && discovered !== this.region) this.region = discovered;
-            } catch (e) {
-                log.warn('tier_info lookup failed; staying on region:', this.region, e?.message || e);
+            // Resolve the real shard (u003/prde/etc.) from tier_info if region is not yet known or is prod.
+            if (!this.region || this.region === 'prod') {
+                try {
+                    const ti = await this.get('/api/v1/account/tier_info', 0, /*autologin*/ false, /*httpErrorAsError*/ false);
+                    const discovered = ti?.tier || ti?.region || ti?.account?.tier;
+                    if (discovered && discovered !== this.region) this.region = discovered;
+                } catch (e) {
+                    // Optional probe; keep quiet unless debugging
+                    log.debug('tier_info lookup failed; staying on region:', this.region, e?.message || e);
+                }
             }
         }
         return res;
