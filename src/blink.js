@@ -312,7 +312,7 @@ class BlinkCamera extends BlinkDevice {
 
     async getLiveViewURL(timeout = 30) {
         const [data] = await this.blink.getCameraLiveView(this.networkID, this.cameraID, timeout);
-        return data?.server;
+        return data;
     }
 }
 BlinkCamera.PRIVACY_BYTES = PRIVACY_BYTES;
@@ -799,13 +799,132 @@ class Blink {
             .filter(m => !cameraID || m.device_id === cameraID);
     }
 
+    _normalizeLiveViewTransport(rawTransport = {}, fallbackType = null) {
+        if (!rawTransport) return null;
+
+        const transport = {...rawTransport};
+        const type = (transport.type || transport.protocol || fallbackType || '').toLowerCase();
+        const url = transport.url || transport.uri || transport.playlist || transport.server || null;
+        const headers = transport.headers || transport.http_headers || transport.httpHeaders || null;
+        const tokens = transport.tokens ? transport.tokens : (transport.token ? { token: transport.token } : null);
+        const expiresAt = transport.expires_at || transport.expiration || transport.expire_at || null;
+
+        const normalized = {
+            type: type || (url && url.startsWith('rtsp') ? 'rtsp' : url && url.startsWith('https') ? 'hls' : null),
+            url,
+            headers,
+            tokens,
+            expiresAt,
+            encryption: transport.encryption || transport.drm || null,
+            iceServers: transport.ice_servers || transport.iceServers || null,
+            offer: transport.offer || transport.local_description || transport.localDescription || null,
+            answer: transport.answer || transport.remote_description || transport.remoteDescription || null,
+            dtls: transport.dtls_parameters || transport.dtlsParameters || null,
+            peerConnectionId: transport.peer_connection_id || transport.peerConnectionId || null,
+            raw: rawTransport,
+        };
+
+        if (!normalized.type && normalized.url) {
+            if (/webrtc/i.test(normalized.url)) normalized.type = 'webrtc';
+        }
+
+        return normalized;
+    }
+
+    _normalizeLiveViewCommand(command = {}) {
+        if (!command) return null;
+
+        const transports = [];
+        const transportSources = [
+            command.transports,
+            command.options?.transports,
+            command.media?.transports,
+            command.stream?.transports,
+            command.playback?.transports,
+        ].filter(Boolean).flatMap(item => Array.isArray(item) ? item : [item]);
+
+        for (const rawTransport of transportSources) {
+            const normalized = this._normalizeLiveViewTransport(rawTransport);
+            if (normalized) transports.push(normalized);
+        }
+
+        if (command.server) {
+            const normalized = this._normalizeLiveViewTransport({
+                type: command.server?.startsWith('rtsps') ? 'rtsps' : 'rtsp',
+                url: command.server,
+            });
+            if (normalized) transports.push(normalized);
+        }
+
+        const legacy = command.server ? transports.find(t => t.url === command.server) : null;
+
+        const session = {
+            id: command.session_id || command.session?.id || null,
+            continueInterval: command.continue_interval || command.session?.continue_interval || null,
+            continueWarning: command.continue_warning || command.session?.continue_warning || null,
+            duration: command.duration || command.session?.duration || null,
+            expiresAt: command.session?.expires_at || command.expires_at || null,
+            mediaId: command.media_id || command.session?.media_id || null,
+            continueUrl: command.session?.continue_url || null,
+            continueToken: command.continue_token || command.session?.continue_token || null,
+            joinAvailable: Boolean(command.join_available),
+            joinState: command.join_state || null,
+        };
+
+        const tokens = {
+            continue: session.continueToken,
+            auth: command.authorization || command.auth_token || null,
+        };
+
+        const preferredOrder = ['webrtc', 'hls', 'dash', 'https', 'rtsps', 'rtsp'];
+        const pickTransport = () => {
+            for (const type of preferredOrder) {
+                const match = transports.find(t => t.type === type);
+                if (match?.url) return match;
+            }
+            return transports.find(t => t.url) || null;
+        };
+
+        const primary = pickTransport();
+
+        return {
+            url: primary?.url || legacy?.url || null,
+            protocol: primary?.type || legacy?.type || null,
+            headers: primary?.headers || null,
+            transport: primary || null,
+            transports,
+            session,
+            tokens,
+            legacy,
+            raw: command,
+        };
+    }
+
     async getCameraLiveView(networkID, cameraID, timeout = 30) {
         const camera = this.cameras.get(cameraID);
 
         let cmd = this.blinkAPI.getCameraLiveViewV6;
         if (camera.isCameraMini) cmd = this.blinkAPI.getOwlLiveView;
 
-        return await this._command(networkID, () => cmd.call(this.blinkAPI, networkID, cameraID), timeout);
+        const requestCache = new Map();
+        const responses = await this._command(networkID, async () => {
+            const result = await cmd.call(this.blinkAPI, networkID, cameraID);
+            const commandID = result?.command_id || result?.id;
+            if (commandID && !requestCache.has(commandID) && !result?.message) {
+                requestCache.set(commandID, result);
+            }
+            return result;
+        }, timeout);
+        return responses?.map(res => {
+            const commandID = res?.command_id || res?.id || res?.commands?.[0]?.id;
+            const initial = (commandID && requestCache.get(commandID)) || [...requestCache.values()][0] || {};
+            const combined = {...initial, ...res};
+            if (initial?.transports && !combined.transports) combined.transports = initial.transports;
+            if (initial?.session && !combined.session) combined.session = initial.session;
+            if (initial?.continue_token && !combined.continue_token) combined.continue_token = initial.continue_token;
+            if (initial?.options && !combined.options) combined.options = initial.options;
+            return this._normalizeLiveViewCommand(combined);
+        }).filter(Boolean) || [];
     }
 
     async stopCameraLiveView(networkID) {

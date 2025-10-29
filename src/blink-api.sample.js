@@ -741,10 +741,62 @@ const DISARM_NETWORK = {
     state: 'new',
 };
 const CAMERA_LIVE_VIEW = {
-    command_id: 999999999, join_available: true, join_state: 'available',
+    command_id: 999999999,
+    join_available: true,
+    join_state: 'available',
+    duration: 300,
+    continue_interval: 30,
+    continue_warning: 10,
+    submit_logs: true,
+    new_command: true,
+    network_id: 2000001,
+    media_id: null,
+    session_id: 'LV-SESSION-EXAMPLE',
+    continue_token: 'LV-KEEPALIVE-TOKEN',
     server: 'rtsps://lv2-app-prod.immedia-semi.com:443/NIE5YSJGOOOn__IMDS_B0000001?client_id=208&blinkRTSP=true',
-    duration: 300, continue_interval: 30, continue_warning: 10, submit_logs: true, new_command: true,
-    network_id: 2000001, media_id: null, options: {},
+    transports: [
+        {
+            type: 'hls',
+            url: 'https://lv2-prod.immedia-semi.com/NIE5YSJGOOOn/playlist.m3u8?Signature=redacted',
+            expires_at: '2024-01-01T00:05:00+00:00',
+            headers: {
+                Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.redacted',
+                'X-Blink-Session': 'LV-SESSION-EXAMPLE',
+            },
+            encryption: {
+                method: 'AES-128',
+                key_uri: 'https://lv2-prod.immedia-semi.com/NIE5YSJGOOOn/key.bin?Signature=redacted',
+            },
+        },
+        {
+            type: 'webrtc',
+            expires_at: '2024-01-01T00:05:00+00:00',
+            offer: {
+                type: 'offer',
+                sdp: 'v=0\r\no=- 46117392 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=sendrecv\r\na=ice-ufrag:redacted',
+            },
+            dtls_parameters: {
+                fingerprints: [
+                    {algorithm: 'sha-256', value: '00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF'},
+                ],
+                role: 'auto',
+            },
+            ice_servers: [
+                {urls: ['stun:stun.immedia-semi.com:3478']},
+                {urls: ['turns:turn.immedia-semi.com:5349'], username: 'turn-user-redacted', credential: 'turn-pass-redacted'},
+            ],
+            peer_connection_id: 'pc-redacted',
+        },
+    ],
+    session: {
+        id: 'LV-SESSION-EXAMPLE',
+        expires_at: '2024-01-01T00:06:00+00:00',
+        continue_interval: 30,
+        continue_warning: 10,
+        duration: 300,
+        continue_url: 'https://rest-prod.immedia-semi.com/api/v1/liveview/continue',
+        continue_token: 'LV-KEEPALIVE-TOKEN',
+    },
 };
 
 module.exports = {

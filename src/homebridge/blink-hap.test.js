@@ -406,9 +406,12 @@ describe('BlinkHAP', () => {
             blink.blinkAPI.getAccountHomescreen.mockResolvedValue(SAMPLE.HOMESCREEN);
             await blink.refreshData();
 
-            const complete = JSON.parse(JSON.stringify(SAMPLE.COMMAND_COMPLETE));
-            complete.server = liveURL;
-            blink.getCameraLiveView = jest.fn().mockResolvedValue([complete]);
+            const liveViewResponse = liveURL ? {
+                url: liveURL,
+                legacy: {url: liveURL},
+                transports: liveURL ? [{type: liveURL.startsWith('http') ? 'hls' : 'rtsp', url: liveURL}] : [],
+            } : null;
+            blink.getCameraLiveView = jest.fn().mockResolvedValue(liveViewResponse ? [liveViewResponse] : []);
 
             const cameraData = og ? SAMPLE.HOMESCREEN.CAMERA_OG : SAMPLE.HOMESCREEN.CAMERA_G2;
             const cameraDevice = blink.cameras.get(cameraData.id);

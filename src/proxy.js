@@ -2,6 +2,13 @@ const net = require('net');
 const tls = require('tls');
 const {Transform} = require('stream');
 
+function formatFfmpegHeaders(headers = {}) {
+    if (!headers || typeof headers !== 'object') return undefined;
+    const entries = Object.entries(headers).filter(([, value]) => value !== undefined && value !== null);
+    if (!entries.length) return undefined;
+    return `${entries.map(([key, value]) => `${key}: ${value}`).join('\r\n')}\r\n`;
+}
+
 class Http2TLSTunnel {
     constructor(listenPort, tlsHost, listenHost = '0.0.0.0', tlsPort = 443, protocol = 'rtsp') {
         this._listenHost = listenHost;
@@ -171,4 +178,4 @@ class Http2TLSTunnel {
     }
 }
 
-module.exports = {Http2TLSTunnel};
+module.exports = {Http2TLSTunnel, formatFfmpegHeaders};

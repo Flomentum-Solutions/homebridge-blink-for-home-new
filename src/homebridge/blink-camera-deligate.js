@@ -16,7 +16,7 @@ const {
 } = require('@homebridge/camera-utils');
 const pathToFfmpeg = require('ffmpeg-for-homebridge');
 
-const {Http2TLSTunnel} = require('../proxy');
+const {Http2TLSTunnel, formatFfmpegHeaders} = require('../proxy');
 // class SessionInfo {
 //     address: string, // address of the HAP controller
 //
@@ -104,26 +104,50 @@ class BlinkCameraDelegate {
         };
 
         this.pendingSessions.set(request.sessionID, sessionInfo);
-        this.proxySessions.set(request.sessionID, {path: DEFAULT_IMAGE_URL});
+        this.proxySessions.set(request.sessionID, {type: 'image', path: DEFAULT_IMAGE_URL});
 
-        const liveViewURL = await this.blinkCamera.getLiveViewURL();
-        log.info(`${this.blinkCamera?.name} - LiveView: ${liveViewURL}`);
+        const liveView = await this.blinkCamera.getLiveViewURL();
+        const liveViewURL = liveView?.url || liveView?.legacy?.url;
+        log.info(`${this.blinkCamera?.name} - LiveView: ${liveViewURL || 'unavailable'}`);
+
+        const sessionMeta = {
+            session: liveView?.session,
+            tokens: liveView?.tokens,
+            transport: liveView?.transport,
+        };
+
+        this.pendingSessions.set(request.sessionID, {...sessionInfo, ...sessionMeta});
 
         // TODO: this is messy as hell - massive cleanup necessary
         const rtspRegex = /([a-z]+):\/\/([^:/]+)(?::[0-9]+)?(\/.*)/;
-        if (liveViewURL?.startsWith('rtsp') && rtspRegex.test(liveViewURL)) {
+        if (liveView?.transport?.type?.startsWith('rtsp') && liveView?.transport?.url && rtspRegex.test(liveView.transport.url)) {
+            const [, protocol, host, path] = rtspRegex.exec(liveView.transport.url);
+            const [listenPort] = await reservePorts({count: 1});
+            const proxyServer = await this.createTLSTunnel(listenPort, host, protocol);
+            const rtspProxy = {type: 'rtsp', protocol, host, path, listenPort, proxyServer};
+            this.proxySessions.set(request.sessionID, {...rtspProxy, headers: liveView.transport.headers});
+        }
+        else if (liveViewURL?.startsWith('rtsp') && rtspRegex.test(liveViewURL)) {
             const [, protocol, host, path] = rtspRegex.exec(liveViewURL);
             const [listenPort] = await reservePorts({count: 1});
             const proxyServer = await this.createTLSTunnel(listenPort, host, protocol);
-            const rtspProxy = {protocol, host, path, listenPort, proxyServer};
+            const rtspProxy = {type: 'rtsp', protocol, host, path, listenPort, proxyServer};
             this.proxySessions.set(request.sessionID, rtspProxy);
         }
         else if (liveViewURL?.startsWith('immis')) {
             // TODO: decode the proproietary rtsp stream
             // TODO: send screenshots instead
         }
+        else if (liveView?.transport?.url && /^https?:/i.test(liveView.transport.url)) {
+            this.proxySessions.set(request.sessionID, {
+                type: 'hls',
+                url: liveView.transport.url,
+                headers: liveView.transport.headers || liveView.headers,
+                userAgent: liveView.transport.userAgent || 'Immedia WalnutPlayer',
+            });
+        }
         else if (liveViewURL) {
-            this.proxySessions.set(request.sessionID, {path: liveViewURL});
+            this.proxySessions.set(request.sessionID, {type: 'image', path: liveViewURL});
         }
         callback(null, response);
     }
@@ -149,7 +173,7 @@ class BlinkCameraDelegate {
         const sessionInfo = this.pendingSessions.get(sessionID);
         if (!sessionInfo) return;
 
-        const rtspProxy = this.proxySessions.get(sessionID);
+        const streamInfo = this.proxySessions.get(sessionID) || {};
 
         // const profile = FFMPEGH264ProfileNames[video.profile];
         // const level = FFMPEGH264LevelNames[video.level];
@@ -166,11 +190,11 @@ class BlinkCameraDelegate {
         log.info(`${this.blinkCamera.name} - LiveView START (${video.width}x${video.height}, ${video.fps} fps, ${maxBitrate} kbps, ${video.mtu} mtu)...`);
         const videoffmpegCommand = [];
 
-        log.debug(`${this.blinkCamera.name} - PROXY`, rtspProxy);
-        if (rtspProxy.proxyServer) {
+        log.debug(`${this.blinkCamera.name} - PROXY`, streamInfo);
+        if (streamInfo.type === 'rtsp' && streamInfo.proxyServer) {
             videoffmpegCommand.push(...[
                 `-hide_banner -loglevel warning`,
-                `-i rtsp://localhost:${rtspProxy.listenPort}${rtspProxy.path}`,
+                `-i rtsp://localhost:${streamInfo.listenPort}${streamInfo.path}`,
                 // `-map 0:a`,
                 // `-ac 1 -ar 16k`, // audio channel: 1, audio sample rate: 16k
                 // `-b:a 24k -bufsize 24k`,
@@ -185,11 +209,23 @@ class BlinkCameraDelegate {
                 `-user-agent Immedia%20WalnutPlayer`, // %20 is a special case, we will turn back to a space later
             ]);
         }
+        else if (streamInfo.type === 'hls' && streamInfo.url) {
+            const headerString = formatFfmpegHeaders(streamInfo.headers);
+            videoffmpegCommand.push(`-hide_banner -loglevel warning`);
+            if (headerString) {
+                videoffmpegCommand.push('-headers', headerString);
+            }
+            videoffmpegCommand.push('-user_agent', streamInfo.userAgent || 'Immedia WalnutPlayer');
+            videoffmpegCommand.push('-i', streamInfo.url);
+            videoffmpegCommand.push('-map 0:0');
+            videoffmpegCommand.push('-vcodec copy');
+        }
         else {
+            const stillPath = streamInfo.path || DEFAULT_IMAGE_URL;
             videoffmpegCommand.push(...[
                 `-hide_banner -loglevel warning`,
                 `-loop 1 -framerate 1 -re`, // loop single frame, slow down encode
-                `-f image2 -i ${rtspProxy.path}`,
+                `-f image2 -i ${stillPath}`,
                 `-c:v libx264 -preset ultrafast -pix_fmt yuv420p`, // h264 with 3.0 profile
                 `-profile:v baseline -s ${video.width}x${video.height}`,
                 `-g 300 -r 10`, // fps=10 (not ${video.fps}) and iframe every 300 fps
