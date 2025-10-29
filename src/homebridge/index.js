@@ -24,16 +24,30 @@ class HomebridgeBlink {
         this.cachedAccessories = []
 
         this.accessories = {}
-        if (!this.config.username && !this.config.password) {
-            throw Error(
+        this.disabled = false
+
+        if (!this.config.username || !this.config.password) {
+            this.disabled = true
+            this.log.error(
                 'Missing Blink account credentials {"email","password"} in config.json'
             )
+            this.log.error(
+                'Blink platform initialisation skipped until credentials are provided.'
+            )
+            return
         }
 
         api.on('didFinishLaunching', () => this.init())
     }
 
     async init () {
+        if (this.disabled) {
+            this.log.warn(
+                'Blink platform did not start because required credentials were missing.'
+            )
+            return
+        }
+
         this.log.info('Init Blink')
         // const updateAccessories = function (data = [], accessories = new Map()) {
         //     for (const entry of data) {
@@ -110,7 +124,7 @@ class HomebridgeBlink {
     }
 
     async setupBlink () {
-        if (!this.config.username && !this.config.password) {
+        if (!this.config.username || !this.config.password) {
             throw Error('Missing Blink {"email","password"} in config.json')
         }
         const clientUUID = this.api.hap.uuid.generate(
