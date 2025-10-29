@@ -361,7 +361,8 @@ class BlinkCameraHAP extends BlinkCamera {
         if (this.model !== 'white') {
             return `${__dirname}/../offline.png`;
         }
-        return await super.getLiveViewURL(4) || `${__dirname}/../offline.png`;
+        const liveView = await super.getLiveViewURL(4);
+        return liveView?.url || `${__dirname}/../offline.png`;
     }
     createAccessory(hapAPI, cachedAccessories = []) {
         if (this.accessory) return this;

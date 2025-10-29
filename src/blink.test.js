@@ -338,8 +338,10 @@ describe('Blink', () => {
             const cameraData = mini ? SAMPLE.HOMESCREEN.MINI : SAMPLE.HOMESCREEN.CAMERA_OG;
             const cameraDevice = blink.cameras.get(cameraData.id);
 
-            const url = await cameraDevice.getLiveViewURL();
-            expect(url).toContain('rtp://localhost');
+            const liveView = await cameraDevice.getLiveViewURL();
+            expect(liveView?.url).toContain('playlist.m3u8');
+            expect(liveView?.legacy?.url).toContain('rtp://localhost');
+            expect(Array.isArray(liveView?.transports)).toBe(true);
             expect(blink.blinkAPI.getCameraLiveViewV6).toBeCalledTimes(!mini ? 1 : 0);
             expect(blink.blinkAPI.getOwlLiveView).toBeCalledTimes(mini ? 1 : 0);
         });
