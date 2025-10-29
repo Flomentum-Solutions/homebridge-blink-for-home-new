@@ -15,11 +15,13 @@ const CACHE = new Map();
 
 const DEFAULT_CLIENT_OPTIONS = {
     notificationKey: null,
-    device: 'iPhone16,2',
+    device: 'iPhone17,1',
     type: 'ios',
     name: 'iPhone',
-    appVersion: '46.0 (2507161422)',
-    os: '18.6',
+    appVersion: '47.3.1 (2703151501)',
+    os: '18.7.1',
+    locale: 'en_US',
+    timeZone: 'America/New_York',
 };
 
 /* eslint-disable */
@@ -181,6 +183,10 @@ class BlinkAPI {
             notificationKey: process.env.BLINK_NOTIFICATION_KEY || ini.notification ||
                 crypto.randomBytes(32).toString('hex'),
         }, auth);
+        this._clientOptions = Object.assign({}, DEFAULT_CLIENT_OPTIONS);
+        this._session = null;
+        this.refreshToken = null;
+        this.tokenExpiresAt = 0;
     }
 
     set region(val) {
@@ -197,6 +203,96 @@ class BlinkAPI {
 
     get token() {
         return this._token;
+    }
+
+    hasValidToken(bufferMs = 30000) {
+        if (!this.token) return false;
+        if (!this.tokenExpiresAt) return true;
+        return (Date.now() + bufferMs) < this.tokenExpiresAt;
+    }
+
+    canRefresh() {
+        return Boolean(this.refreshToken);
+    }
+
+    getOAuthBundle() {
+        if (!this.token) return null;
+        return {
+            access_token: this.token,
+            refresh_token: this.refreshToken,
+            expires_at: this.tokenExpiresAt || 0,
+            account_id: this.accountID,
+            client_id: this.clientID,
+            region: this.region,
+        };
+    }
+
+    useOAuthBundle(bundle = {}) {
+        if (!bundle?.access_token) return null;
+        this.token = bundle.access_token;
+        this.refreshToken = bundle.refresh_token || this.refreshToken;
+        this.tokenExpiresAt = bundle.expires_at || 0;
+        this.accountID = bundle.account_id || this.accountID;
+        this.clientID = bundle.client_id || this.clientID;
+        this.region = bundle.region || this.region;
+        const account = Object.assign({}, this._session?.account, {
+            account_id: this.accountID,
+            client_id: this.clientID,
+            tier: this.region,
+            region: this.region,
+        });
+        this._session = Object.assign({}, this._session, {
+            account,
+            auth: Object.assign({}, this._session?.auth, { token: this.token }),
+            access_token: this.token,
+            refresh_token: this.refreshToken,
+            expires_at: this.tokenExpiresAt,
+        });
+        return this._session;
+    }
+
+    _ingestSession(session = {}) {
+        if (!session) return this._session;
+        const normalized = Object.assign({}, this._session, session);
+        const accessToken = session.access_token || session.auth?.token;
+        if (!accessToken) {
+            this._session = normalized;
+            return normalized;
+        }
+
+        const refreshToken = session.refresh_token || session.auth?.refresh_token || this.refreshToken;
+        const expiresAt = session.expires_at || (session.expires_in
+            ? Date.now() + Number(session.expires_in) * 1000
+            : this.tokenExpiresAt || 0);
+
+        this.token = accessToken;
+        this.refreshToken = refreshToken || this.refreshToken;
+        this.tokenExpiresAt = expiresAt || 0;
+
+        let account = {};
+        if (normalized.account) account = Object.assign(account, normalized.account);
+        if (session.account) account = Object.assign(account, session.account);
+        if (!account.account_id) account.account_id = session.account_id ?? this.accountID;
+        if (!account.client_id) account.client_id = session.client_id ?? this.clientID;
+        if (!account.tier) account.tier = session.region || account.region || this.region;
+        if (account.tier && !account.region) account.region = account.tier;
+        this.accountID = account.account_id || this.accountID;
+        this.clientID = account.client_id || this.clientID;
+        this.region = account.tier || account.region || this.region || 'prod';
+
+        normalized.account = account;
+        normalized.auth = Object.assign({}, session.auth, {
+            token: accessToken,
+            refresh_token: refreshToken,
+            expires_at: this.tokenExpiresAt,
+        });
+        normalized.access_token = accessToken;
+        normalized.refresh_token = refreshToken;
+        normalized.expires_at = this.tokenExpiresAt;
+
+        this._session = normalized;
+        this.init(this.token, this.accountID, this.clientID, this.region);
+        return normalized;
     }
 
     set accountID(val) {
@@ -256,15 +352,18 @@ class BlinkAPI {
             CACHE.set(cacheKey, cache);
         }
 
+        const client = this._clientOptions || DEFAULT_CLIENT_OPTIONS;
+        const buildMatch = /\(([^)]+)\)/.exec(client.appVersion || '');
+        const appBuild = buildMatch ? buildMatch[1] : '2703151501';
         const headers = {
-            'User-Agent': 'Blink/2507161422 CFNetwork/3826.600.41 Darwin/24.6.0',
-            'app-build': '2507161422',
-            'Locale': 'en_US',
-            'x-blink-time-zone': 'America/New_York',
-            'accept-language': 'en-US',
+            'User-Agent': `Blink/${appBuild} CFNetwork/3845.120.29 Darwin/24.7.0`,
+            'app-build': appBuild,
+            'Locale': client.locale || 'en_US',
+            'x-blink-time-zone': client.timeZone || 'America/New_York',
+            'accept-language': (client.locale || 'en_US').replace('_', '-') + ', en;q=0.9',
             'Accept': '*/*',
         };
-        if (this.token) headers['token-auth'] = this.token;
+        if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
 
         const options = { method, headers };
         if (payload) {
@@ -280,7 +379,10 @@ class BlinkAPI {
         //  - otherwise, hit the discovered region shard (u003, prde, etc.)
         let urlPrefix = '';
         if (!targetPath.startsWith('http')) {
-            if (targetPath === '/api/v1/account/tier_info') {
+            if (targetPath.startsWith('/oauth/')) {
+                urlPrefix = PROD_BASE;
+            }
+            else if (targetPath === '/api/v1/account/tier_info') {
                 // Blink expects tier_info on the prod host regardless of shard.
                 urlPrefix = PROD_BASE;
             } else {
@@ -469,44 +571,86 @@ class BlinkAPI {
      **/
 
     async login(force = false, client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
-        if (!force && this.token) return;
+        this._clientOptions = Object.assign({}, DEFAULT_CLIENT_OPTIONS, client || {});
+        if (!force && this.hasValidToken()) {
+            const session = this._session || this._ingestSession({
+                access_token: this.token,
+                refresh_token: this.refreshToken,
+                expires_at: this.tokenExpiresAt,
+                account: {
+                    account_id: this.accountID,
+                    client_id: this.clientID,
+                    tier: this.region,
+                },
+            });
+            return session;
+        }
+
+        let session;
+        if (this.canRefresh()) {
+            try {
+                session = await this.refreshGrant(this._clientOptions, httpErrorAsError);
+            } catch (err) {
+                log.debug('Blink refresh grant failed:', err?.message || err);
+                session = null;
+            }
+        }
+
+        if (!session) {
+            session = await this.passwordGrant(this._clientOptions, httpErrorAsError);
+        }
+
+        if (/unauthorized|invalid/i.test(session?.message)) {
+            throw new Error(session.message);
+        }
+
+        const normalized = this._ingestSession(session);
+
+        if (!this.region || this.region === 'prod') {
+            try {
+                const ti = await this.get('/api/v1/account/tier_info', 0, /*autologin*/ false, /*httpErrorAsError*/ false);
+                const discovered = ti?.tier || ti?.region || ti?.account?.tier;
+                if (discovered && discovered !== this.region) this.region = discovered;
+            } catch (e) {
+                log.debug('tier_info lookup failed; staying on region:', this.region, e?.message || e);
+            }
+        }
+
+        return normalized;
+    }
+
+    async passwordGrant(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
         if (!this.auth?.email || !this.auth?.password) throw new Error('Email or Password is blank');
 
-        client = Object.assign({}, DEFAULT_CLIENT_OPTIONS, client || {});
         const data = {
-            'app_version': client.appVersion,
-            'client_name': client.name,
-            'client_type': client.type,
-            'device_identifier': client.device,
-            'email': this.auth.email,
-            'notification_key': client.notificationKey || this.auth.notificationKey,
-            'os_version': client.os,
-            'password': this.auth.password,
-            'unique_id': this.auth.clientUUID,
+            grant_type: 'password',
+            username: this.auth.email,
+            password: this.auth.password,
+            scope: 'client',
+            client_id: this.auth.clientUUID,
+            client_name: client.name,
+            client_type: client.type,
+            device_identifier: client.device,
+            os_version: client.os,
+            app_version: client.appVersion,
+            notification_key: client.notificationKey || this.auth.notificationKey,
+            unique_id: this.auth.clientUUID,
         };
         if (this.auth.pin) data.reauth = 'true';
 
-        const res = await this.post('/api/v5/account/login', data, false, httpErrorAsError);
+        return await this.post('/oauth/token', data, false, httpErrorAsError);
+    }
 
-        if (/unauthorized|invalid/i.test(res?.message)) {
-            throw new Error(res.message);
-        }
-        else {
-            // Initialize with whatever the login tells us (older apps used account.tier='prod')
-            this.init(res.auth?.token, res.account?.account_id, res.account?.client_id, res.account?.tier);
-            // Resolve the real shard (u003/prde/etc.) from tier_info if region is not yet known or is prod.
-            if (!this.region || this.region === 'prod') {
-                try {
-                    const ti = await this.get('/api/v1/account/tier_info', 0, /*autologin*/ false, /*httpErrorAsError*/ false);
-                    const discovered = ti?.tier || ti?.region || ti?.account?.tier;
-                    if (discovered && discovered !== this.region) this.region = discovered;
-                } catch (e) {
-                    // Optional probe; keep quiet unless debugging
-                    log.debug('tier_info lookup failed; staying on region:', this.region, e?.message || e);
-                }
-            }
-        }
-        return res;
+    async refreshGrant(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
+        if (!this.refreshToken) throw new Error('Missing refresh token');
+
+        const data = {
+            grant_type: 'refresh_token',
+            refresh_token: this.refreshToken,
+            client_id: this.auth.clientUUID,
+        };
+
+        return await this.post('/oauth/refresh', data, false, httpErrorAsError);
     }
 
     /**

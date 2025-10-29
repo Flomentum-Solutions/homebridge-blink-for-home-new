@@ -2,6 +2,7 @@ const { log } = require('./log');
 const BlinkAPI = require('./blink-api');
 const { sleep, fahrenheitToCelsius } = require('./utils');
 const fs = require('fs');
+const path = require('path');
 const { stringify } = require('./stringify');
 // const stringify = JSON.stringify;
 
@@ -320,12 +321,21 @@ BlinkCamera.DISABLED_BYTES = DISABLED_BYTES;
 BlinkCamera.UNSUPPORTED_BYTES = UNSUPPORTED_BYTES;
 
 class Blink {
-    constructor(clientUUID, auth, statusPoll = STATUS_POLL, motionPoll = MOTION_POLL, snapshotRate = THUMBNAIL_TTL) {
+    constructor(
+        clientUUID,
+        auth,
+        statusPoll = STATUS_POLL,
+        motionPoll = MOTION_POLL,
+        snapshotRate = THUMBNAIL_TTL,
+        tokenCachePath = null
+    ) {
         this.blinkAPI = new BlinkAPI(clientUUID, auth);
         this.statusPoll = statusPoll ?? STATUS_POLL;
         this.motionPoll = motionPoll ?? MOTION_POLL;
         this.snapshotRate = snapshotRate ?? THUMBNAIL_TTL;
         this._lockCache = new Map();
+        this._oauthCachePath = tokenCachePath || null;
+        this._oauthBundleLoaded = false;
     }
 
     createNetwork(data) {
@@ -585,6 +595,7 @@ class Blink {
     }
 
     async authenticate() {
+        await this._loadOAuthBundle();
         if (Date.now() < this.nextLoginAttempt) {
             log.error('Too frequent logins, wait 5s');
             throw new Error('Too frequent logins, wait 5s');
@@ -592,7 +603,7 @@ class Blink {
 
         this.nextLoginAttempt = Date.now() + 5 * 1000;
 
-        let login = await this.blinkAPI.login(true, null, false);
+        let login = await this.blinkAPI.login(false, null, false);
         // convenience function to avoid the business logic layer from having to handle this check constantly
         if (/Client already deleted/i.test(login?.message)) {
             delete this.blinkAPI.auth.pin;
@@ -635,7 +646,55 @@ class Blink {
                 throw new Error(`2FA required. PIN sent to ${twofa}`);
             }
         }
+        await this._persistOAuthBundle();
         return login;
+    }
+
+    get oauthCachePath() {
+        return this._oauthCachePath;
+    }
+
+    set oauthCachePath(val) {
+        this._oauthCachePath = val || null;
+    }
+
+    async _loadOAuthBundle() {
+        if (this._oauthBundleLoaded || !this.oauthCachePath) return;
+        this._oauthBundleLoaded = true;
+        try {
+            const raw = await fs.promises.readFile(this.oauthCachePath, 'utf8');
+            const bundle = JSON.parse(raw);
+            if (bundle && typeof bundle === 'object') {
+                this.blinkAPI.useOAuthBundle?.(bundle);
+            }
+        } catch (err) {
+            if (err?.code !== 'ENOENT') {
+                log.debug('Failed to load Blink OAuth cache:', err?.message || err);
+            }
+        }
+    }
+
+    async _persistOAuthBundle() {
+        if (!this.oauthCachePath) return;
+        const bundle = this.blinkAPI.getOAuthBundle?.();
+        if (!bundle || typeof bundle !== 'object') return;
+        const dir = path.dirname(this.oauthCachePath);
+        try {
+            await fs.promises.mkdir(dir, { recursive: true });
+        } catch (err) {
+            if (err?.code !== 'EEXIST') {
+                log.debug('Failed to ensure Blink OAuth cache directory:', err?.message || err);
+            }
+        }
+        try {
+            await fs.promises.writeFile(
+                this.oauthCachePath,
+                JSON.stringify(bundle, null, 2),
+                'utf8'
+            );
+        } catch (err) {
+            log.error('Unable to persist Blink OAuth cache:', err?.message || err);
+        }
     }
 
     async logout() {

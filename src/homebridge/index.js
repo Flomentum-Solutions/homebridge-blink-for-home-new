@@ -1,3 +1,4 @@
+const path = require('path')
 const { setLogger } = require('../log')
 const hap = require('./hap')
 const BLINK_STATUS_EVENT_LOOP = 10 // internal poll interval
@@ -136,8 +137,16 @@ class HomebridgeBlink {
             pin: this.config.pin
         }
 
+        const oauthCachePath = path.join(
+            this.api.user.storagePath(),
+            'blink-oauth.json'
+        )
+
         const { BlinkHAP } = require('./blink-hap')
-        const blink = new BlinkHAP(clientUUID, auth, this.config)
+        const blink = new BlinkHAP(clientUUID, auth, {
+            ...this.config,
+            tokenCachePath: oauthCachePath
+        })
         try {
             await blink.authenticate()
             await blink.refreshData()

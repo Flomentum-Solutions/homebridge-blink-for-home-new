@@ -30,6 +30,7 @@ const DEFAULT_OPTIONS = {
     verbose: false,
     debug: false,
     startupDiagnostic: false,
+    tokenCachePath: null,
 };
 
 // const StreamingStatusTypes = {STATUS: 0x01};
@@ -456,7 +457,14 @@ class BlinkCameraHAP extends BlinkCamera {
 class BlinkHAP extends Blink {
     constructor(clientUUID, auth, config = {}) {
         config = BlinkHAP.normalizeConfig(config);
-        super(clientUUID, auth, config.statusPollingSeconds, config.motionPollingSeconds, config.snapshotSeconds);
+        super(
+            clientUUID,
+            auth,
+            config.statusPollingSeconds,
+            config.motionPollingSeconds,
+            config.snapshotSeconds,
+            config.tokenCachePath
+        );
         this.config = config;
     }
     static normalizeConfig(config = {}) {
