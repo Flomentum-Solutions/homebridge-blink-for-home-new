@@ -590,6 +590,12 @@ class BlinkAPI {
         if (this.canRefresh()) {
             try {
                 session = await this.refreshGrant(this._clientOptions, httpErrorAsError);
+                // If the refresh response doesn't contain a usable access token
+                // treat it as a failed refresh so we fall back to password grant.
+                if (session && !(session.access_token || session.auth?.token)) {
+                    log.debug('Blink refresh grant returned no access token, falling back to password grant');
+                    session = null;
+                }
             } catch (err) {
                 log.debug('Blink refresh grant failed:', err?.message || err);
                 session = null;

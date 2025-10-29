@@ -192,66 +192,67 @@ class BlinkCameraDelegate {
 
         log.debug(`${this.blinkCamera.name} - PROXY`, streamInfo);
         if (streamInfo.type === 'rtsp' && streamInfo.proxyServer) {
-            videoffmpegCommand.push(...[
-                `-hide_banner -loglevel warning`,
-                `-i rtsp://localhost:${streamInfo.listenPort}${streamInfo.path}`,
+            // push as individual args (avoid later splitting which breaks values with spaces)
+            videoffmpegCommand.push(
+                '-hide_banner', '-loglevel', 'warning',
+                '-i', `rtsp://localhost:${streamInfo.listenPort}${streamInfo.path}`,
                 // `-map 0:a`,
                 // `-ac 1 -ar 16k`, // audio channel: 1, audio sample rate: 16k
                 // `-b:a 24k -bufsize 24k`,
                 // `-flags +global_header`,
                 // '-acodec copy',
-                `-map 0:0`,
-                '-vcodec copy',
+                '-map', '0:0',
+                '-vcodec', 'copy',
                 // `-c:v libx264 -pix_fmt yuv420p -r ${video.fps}`,
                 // `-an -sn -dn`, //disable audio, subtitles, data
                 // `-b:v ${maxBitrate}k -bufsize ${2 * maxBitrate}k -maxrate ${maxBitrate}k`,
                 // `-profile:v ${profile} -level:v ${level}`,
-                `-user-agent Immedia%20WalnutPlayer`, // %20 is a special case, we will turn back to a space later
-            ]);
+                '-user-agent', 'Immedia%20WalnutPlayer' // %20 is a special case, we will turn back to a space later
+            );
         }
         else if (streamInfo.type === 'hls' && streamInfo.url) {
             const headerString = formatFfmpegHeaders(streamInfo.headers);
-            videoffmpegCommand.push(`-hide_banner -loglevel warning`);
+            // push as individual args; keep header/user-agent values intact (may contain spaces)
+            videoffmpegCommand.push('-hide_banner', '-loglevel', 'warning');
             if (headerString) {
                 videoffmpegCommand.push('-headers', headerString);
             }
             videoffmpegCommand.push('-user_agent', streamInfo.userAgent || 'Immedia WalnutPlayer');
             videoffmpegCommand.push('-i', streamInfo.url);
-            videoffmpegCommand.push('-map 0:0');
-            videoffmpegCommand.push('-vcodec copy');
+            videoffmpegCommand.push('-map', '0:0');
+            videoffmpegCommand.push('-vcodec', 'copy');
         }
         else {
             const stillPath = streamInfo.path || DEFAULT_IMAGE_URL;
-            videoffmpegCommand.push(...[
-                `-hide_banner -loglevel warning`,
-                `-loop 1 -framerate 1 -re`, // loop single frame, slow down encode
-                `-f image2 -i ${stillPath}`,
-                `-c:v libx264 -preset ultrafast -pix_fmt yuv420p`, // h264 with 3.0 profile
-                `-profile:v baseline -s ${video.width}x${video.height}`,
-                `-g 300 -r 10`, // fps=10 (not ${video.fps}) and iframe every 300 fps
-                `-an -sn -dn`, // disable audio, subtitles, data
-                `-b:v ${maxBitrate}k -bufsize ${2 * maxBitrate}k -maxrate ${maxBitrate}k`,
-            ]);
+            videoffmpegCommand.push(
+                '-hide_banner', '-loglevel', 'warning',
+                '-loop', '1', '-framerate', '1', '-re', // loop single frame, slow down encode
+                '-f', 'image2', '-i', `${stillPath}`,
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', // h264 with 3.0 profile
+                '-profile:v', 'baseline', '-s', `${video.width}x${video.height}`,
+                '-g', '300', '-r', '10', // fps=10 (not ${video.fps}) and iframe every 300 fps
+                '-an', '-sn', '-dn', // disable audio, subtitles, data
+                '-b:v', `${maxBitrate}k`, '-bufsize', `${2 * maxBitrate}k`, '-maxrate', `${maxBitrate}k`
+            );
         }
 
-        videoffmpegCommand.push(...[
-            `-payload_type ${payloadType}`,
-            `-f rtp`,
-        ]);
+        videoffmpegCommand.push('-payload_type', `${payloadType}`, '-f', 'rtp');
 
         let targetProtocol = 'rtp';
         if (sessionInfo.videoCryptoSuite === SRTPCryptoSuites.AES_CM_128_HMAC_SHA1_80) {
             // actually ffmpeg just supports AES_CM_128_HMAC_SHA1_80
 
             // eslint-disable-next-line max-len
-            videoffmpegCommand.push(`-ssrc ${sessionInfo.videoSSRC} -srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params ${videoSRTP}`);
+            videoffmpegCommand.push('-ssrc', `${sessionInfo.videoSSRC}`, '-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80', '-srtp_out_params', `${videoSRTP}`);
             targetProtocol = 'srtp';
         }
 
-        // eslint-disable-next-line max-len
-        videoffmpegCommand.push(`${targetProtocol}://${address}:${videoPort}?rtcpport=${videoPort}&localrtcpport=${videoPort}&pkt_size=${video.mtu}`);
+    // final destination URL must be a single arg
+    videoffmpegCommand.push(`${targetProtocol}://${address}:${videoPort}?rtcpport=${videoPort}&localrtcpport=${videoPort}&pkt_size=${video.mtu}`);
 
-        const ffmpegCommandClean = videoffmpegCommand.flat().flatMap(c => c.split(' ')).map(v => v.replace('%20', ' '));
+    // Flatten and preserve values (do NOT split on spaces). Earlier pushes use individual args
+    // for flags and keep header/user-agent values intact.
+    const ffmpegCommandClean = videoffmpegCommand.flat().map(v => v.replace('%20', ' '));
         log.debug(`${this.blinkCamera.name} - ffmpeg ${ffmpegCommandClean.join(' ')}`);
 
         const ffmpegVideo = spawn(pathToFfmpeg || 'ffmpeg', ffmpegCommandClean, {env: process.env});
