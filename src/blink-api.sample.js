@@ -505,7 +505,7 @@ const CAMERA_USAGE = {
 
 const ENABLE_CAMERA = {
     account_id: 1000001, attempts: 0,
-    by_whom: 'unknown - 6.1.1 (8854) #e06341d7f', camera_id: 4000002,
+    by_whom: 'unknown - 6.32.0 (124007) #0cd7f73de', camera_id: 4000002,
     command: 'device_motion_enable', created_at: '2022-03-17T02:34:29+00:00',
     debug: '', diagnostic: false, duration: null,
     execute_time: '2022-03-17T02:34:29+00:00', firmware_id: null,
@@ -521,7 +521,7 @@ const ENABLE_CAMERA = {
 
 const DISABLE_CAMERA = {
     account_id: 1000001, attempts: 0,
-    by_whom: 'unknown - 6.1.1 (8854) #e06341d7f', camera_id: 4000002,
+    by_whom: 'unknown - 6.32.0 (124007) #0cd7f73de', camera_id: 4000002,
     command: 'device_motion_disable', created_at: '2022-03-17T02:34:29+00:00',
     debug: '', diagnostic: false, duration: null,
     execute_time: '2022-03-17T02:34:29+00:00', firmware_id: null,
@@ -565,7 +565,7 @@ const MEDIA_CHANGE = {
 
 const UPDATE_THUMBNAIL = {
     account_id: 1000001, attempts: 0,
-    by_whom: 'unknown - 6.1.1 (8854) #e06341d7f', camera_id: 4000002,
+    by_whom: 'unknown - 6.32.0 (124007) #0cd7f73de', camera_id: 4000002,
     command: 'thumbnail', created_at: '2022-03-16T01:16:38+00:00', debug: '',
     diagnostic: false, duration: null,
     execute_time: '2022-03-16T01:16:38+00:00', firmware_id: null,
@@ -581,7 +581,7 @@ const UPDATE_THUMBNAIL = {
 
 const UPDATE_CLIP = {
     account_id: 1000001, attempts: 0,
-    by_whom: 'unknown - 6.1.1 (8854) #e06341d7f', camera_id: 4000002,
+    by_whom: 'unknown - 6.32.0 (124007) #0cd7f73de', camera_id: 4000002,
     command: 'clip', created_at: '2022-03-16T20:57:22+00:00', debug: '',
     diagnostic: false, duration: null,
     execute_time: '2022-03-16T20:57:22+00:00', firmware_id: null,
@@ -636,7 +636,7 @@ const COMMAND_SENT = {
     commands: [
         {
             account_id: 1000001, attempts: 0,
-            by_whom: 'unknown - 6.1.1 (8854) #e06341d7f', camera_id: 4000002,
+            by_whom: 'unknown - 6.32.0 (124007) #0cd7f73de', camera_id: 4000002,
             command: 'thumbnail', created_at: '2022-03-16T01:16:38+00:00',
             debug: '', diagnostic: false, duration: null,
             execute_time: '2022-03-16T01:16:38+00:00', firmware_id: null,
@@ -664,7 +664,7 @@ const COMMAND_RUNNING = {
     commands: [
         {
             account_id: 1000001, attempts: 0,
-            by_whom: 'unknown - 6.1.1 (8854) #e06341d7f', camera_id: 4000002,
+            by_whom: 'unknown - 6.32.0 (124007) #0cd7f73de', camera_id: 4000002,
             command: 'thumbnail', created_at: '2022-03-16T01:16:38+00:00',
             debug: '', diagnostic: false, duration: null,
             execute_time: '2022-03-16T01:16:38+00:00', firmware_id: null,
@@ -692,7 +692,7 @@ const COMMAND_COMPLETE = {
     commands: [
         {
             account_id: 1000001, attempts: 0,
-            by_whom: 'unknown - 6.1.1 (8854) #e06341d7f', camera_id: 4000002,
+            by_whom: 'unknown - 6.32.0 (124007) #0cd7f73de', camera_id: 4000002,
             command: 'thumbnail', created_at: '2022-03-16T01:16:38+00:00',
             debug: '{"lfr_ok":[2000001,3,1634,197,146,164,133,0]}',
             diagnostic: false, duration: 0,

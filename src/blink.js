@@ -500,7 +500,7 @@ class Blink {
             log('getAccountStatus()');
             await anonymize(this.blinkAPI.getAccountStatus());
             log('getAppStatus()');
-            await anonymize(this.blinkAPI.getAppStatus('IOS_8854'));
+            await anonymize(this.blinkAPI.getAppStatus('IOS_124007'));
             log('getBlinkAppVersion()');
             await anonymize(this.blinkAPI.getBlinkAppVersion());
             log('getBlinkRegions()');

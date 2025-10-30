@@ -16,16 +16,18 @@ const CACHE = new Map();
 
 const DEFAULT_CLIENT_OPTIONS = {
     notificationKey: null,
-    device: 'iPhone17,1',
+    appName: 'com.immediasemi.blink',
+    device: 'iPhone15,2',
     type: 'ios',
     name: 'iPhone',
-    appVersion: '47.3.1 (2703151501)',
-    os: '18.7.1',
+    appVersion: '6.32.0 (124007) #0cd7f73de',
+    os: '16.7.2',
+    userAgent: 'CFNetwork/1490.0.4 Darwin/23.6.0',
     locale: 'en_US',
     timeZone: 'America/New_York',
     oauthScope: 'client offline_access',
-    oauthClientId: null,
-    oauthClientSecret: null,
+    oauthClientId: 'blink/com.immediasemi.ios.blink',
+    oauthClientSecret: 'cBl6zzw1bYw3mjKwHnGXcgZEnKQS68EX',
 };
 
 /* eslint-disable */
@@ -187,7 +189,27 @@ class BlinkAPI {
             notificationKey: process.env.BLINK_NOTIFICATION_KEY || ini.notification ||
                 crypto.randomBytes(32).toString('hex'),
         }, auth);
-        this._clientOptions = Object.assign({}, DEFAULT_CLIENT_OPTIONS);
+        const clientOverrides = Object.entries({
+            notificationKey: this.auth.notificationKey,
+            appName: process.env.BLINK_APP_NAME || ini.app_name,
+            device: process.env.BLINK_DEVICE || ini.device || ini.device_identifier,
+            type: process.env.BLINK_CLIENT_TYPE || ini.client_type,
+            name: process.env.BLINK_CLIENT_NAME || ini.client_name,
+            appVersion: process.env.BLINK_APP_VERSION || ini.app_version,
+            os: process.env.BLINK_OS_VERSION || ini.os_version,
+            userAgent: process.env.BLINK_USER_AGENT || ini.user_agent,
+            locale: process.env.BLINK_LOCALE || ini.locale,
+            timeZone: process.env.BLINK_TIME_ZONE || ini.time_zone,
+            oauthScope: process.env.BLINK_OAUTH_SCOPE || ini.oauth_scope,
+            oauthClientId: process.env.BLINK_OAUTH_CLIENT_ID || ini.oauth_client_id,
+            oauthClientSecret: process.env.BLINK_OAUTH_CLIENT_SECRET || ini.oauth_client_secret,
+        }).reduce((acc, [key, value]) => {
+            if (value !== undefined && value !== null && value !== '') {
+                acc[key] = value;
+            }
+            return acc;
+        }, {});
+        this._clientOptions = Object.assign({}, DEFAULT_CLIENT_OPTIONS, clientOverrides);
         this._session = null;
         this.refreshToken = null;
         this.tokenExpiresAt = 0;
@@ -363,12 +385,19 @@ class BlinkAPI {
         const client = this._clientOptions || DEFAULT_CLIENT_OPTIONS;
         const buildMatch = /\(([^)]+)\)/.exec(client.appVersion || '');
         const appBuild = buildMatch ? buildMatch[1] : '2703151501';
+        const locale = client.locale || 'en_US';
+        const timeZone = client.timeZone || 'America/New_York';
+        const userAgentSuffix = client.userAgent || 'CFNetwork/1490.0.4 Darwin/23.6.0';
         const headers = {
-            'User-Agent': `Blink/${appBuild} CFNetwork/3845.120.29 Darwin/24.7.0`,
+            'User-Agent': `Blink/${appBuild} ${userAgentSuffix}`,
             'app-build': appBuild,
-            'Locale': client.locale || 'en_US',
-            'x-blink-time-zone': client.timeZone || 'America/New_York',
-            'accept-language': (client.locale || 'en_US').replace('_', '-') + ', en;q=0.9',
+            'App-Name': client.appName || 'com.immediasemi.blink',
+            'App-Version': client.appVersion || DEFAULT_CLIENT_OPTIONS.appVersion,
+            'Device-Name': client.device || DEFAULT_CLIENT_OPTIONS.device,
+            'OS-Version': client.os || DEFAULT_CLIENT_OPTIONS.os,
+            'Locale': locale,
+            'x-blink-time-zone': timeZone,
+            'accept-language': locale.replace('_', '-') + ', en;q=0.9',
             'Accept': '*/*',
         };
         const extraHeaders = Object.assign({}, options.headers || {});
@@ -553,14 +582,14 @@ class BlinkAPI {
      * locale:           en_CA
      * content-type:     application/json
      * accept:           * /*
-     * app-build:        IOS_8854
+     * app-build:        IOS_124007
      * accept-encoding:  gzip, deflate, br
-     * user-agent:       Blink/8854 CFNetwork/1202 Darwin/20.1.0
+     * user-agent:       Blink/124007 CFNetwork/1490.0.4 Darwin/23.6.0
      * accept-language:  en-CA
      * content-length:   337
      *
      * {
-     *     "app_version": "6.1.1 (8854) #e06341d7f",
+     *     "app_version": "6.32.0 (124007) #0cd7f73de",
      *     "client_name": "iPhone",
      *     "client_type": "ios",
      *     "device_identifier": "iPhone12,3",
@@ -714,6 +743,7 @@ class BlinkAPI {
                 device_identifier: client.device,
                 os_version: client.os,
                 app_version: client.appVersion,
+                app_name: client.appName,
                 notification_key: client.notificationKey || this.auth.notificationKey,
                 unique_id: this.auth.clientUUID,
             };
@@ -767,10 +797,10 @@ class BlinkAPI {
      * locale:           en_CA
      * content-type:     application/json
      * accept:           * /*
-     * app-build:        IOS_8854
+     * app-build:        IOS_124007
      * token-auth:       2YKEsy9BPb9puha1s4uBwe
      * accept-encoding:  gzip, deflate, br
-     * user-agent:       Blink/8854 CFNetwork/1202 Darwin/20.1.0
+     * user-agent:       Blink/124007 CFNetwork/1490.0.4 Darwin/23.6.0
      * accept-language:  en-CA
      * content-length:   16
      * {"pin":"123456"}
@@ -1283,7 +1313,7 @@ class BlinkAPI {
      *       "stage_vs":null,"state_condition":"running","sm_ack":1,"lfr_ack":0,"sequence":365,"attempts":0,
      *       "transaction":"NIE5Fm36YSJGOOOn","player_transaction":"mrkXahUbYjfbUgHg",
      *      "server":"rtsps://lv2-prod.immedia-semi.com:443/NIE5Fm36YSJGOOOn","duration":300,
-     *      "by_whom":"unknown - 6.1.1 (8854) #e06341d7f - liveview","diagnostic":false,
+     *      "by_whom":"unknown - 6.32.0 (124007) #0cd7f73de - liveview","diagnostic":false,
      *      "debug":"{\"lfr_ok\":[2000001,1,365,205,151,159,167,0]}","opts_1":0,"target":"camera",
      *      "target_id":4000001,"parent_command_id":null,"camera_id":4000001,"siren_id":null,"firmware_id":null,
      *      "network_id":2000001,"account_id":1000001,"sync_module_id":3000001
@@ -1300,7 +1330,7 @@ class BlinkAPI {
      *      "stage_vs":null,"state_condition":"done","sm_ack":1,"lfr_ack":0,"sequence":365,"attempts":0,
      *      "transaction":"NIE5Fm36YSJGOOOn","player_transaction":"mrkXahUbYjfbUgHg",
      *      "server":"rtsps://lv2-prod.immedia-semi.com:443/NIE5Fm36YSJGOOOn","duration":9,
-     *      "by_whom":"unknown - 6.1.1 (8854) #e06341d7f - liveview","diagnostic":false,
+     *      "by_whom":"unknown - 6.32.0 (124007) #0cd7f73de - liveview","diagnostic":false,
      *      "debug":"{\"lfr_ok\":[2000001,1,365,205,151,159,167,0]},LV907","opts_1":0,"target":"camera",
      *      "target_id":4000001,"parent_command_id":null,"camera_id":4000001,"siren_id":null,"firmware_id":null,
      *      "network_id":2000001,"account_id":1000001,"sync_module_id":3000001}],"media_id":null}
@@ -1330,7 +1360,7 @@ class BlinkAPI {
      *      "stage_dev":"2020-10-02T00:27:11+00:00","stage_is":null,"stage_lv":null,"stage_vs":null,
      *      "state_condition":"done","sm_ack":1,"lfr_ack":0,"sequence":360,"attempts":0,"transaction":"sf61Hj9V8tVDNU",
      *      "player_transaction":"vwL7YY0xf9-d3Vpq","server":null,"duration":73,
-     *      "by_whom":"unknown - 6.1.1 (8854) #e06341d7f","diagnostic":false,
+     *      "by_whom":"unknown - 6.32.0 (124007) #0cd7f73de","diagnostic":false,
      *      "debug":"{\"lfr_ok\":[2000001,1,360,205,147,159,165,0]}","opts_1":0,"target":"camera",
      *      "target_id":4000001,"parent_command_id":null,"camera_id":4000001,"siren_id":null,"firmware_id":null,
      *      "network_id":2000001,"account_id":1000001,"sync_module_id":3000001
@@ -1342,7 +1372,7 @@ class BlinkAPI {
      *      "stage_dev":null,"stage_is":null,"stage_lv":null,"stage_vs":null,"state_condition":"new","sm_ack":null,
      *      "lfr_ack":null,"sequence":null,"attempts":0,"transaction":"sf61Hj9V8FstVDNU",
      *      "player_transaction":"vwL7YY0xf9-d3Vpq","server":null,"duration":73,
-     *      "by_whom":"unknown - 6.1.1 (8854) #e06341d7f","diagnostic":false,"debug":"","opts_1":0,"target":"camera",
+     *      "by_whom":"unknown - 6.32.0 (124007) #0cd7f73de","diagnostic":false,"debug":"","opts_1":0,"target":"camera",
      *      "target_id":4000001,"parent_command_id":null,"camera_id":4000001,"siren_id":null,"firmware_id":null,
      *      "network_id":2000001,"account_id":1000001,"sync_module_id":3000001}
      */
@@ -1367,7 +1397,7 @@ class BlinkAPI {
      *    "stage_rest":"2020-10-02T00:27:14+00:00","stage_cs_db":null,"stage_cs_sent":null,"stage_sm":null,
      *    "stage_dev":null,"stage_is":null,"stage_lv":null,"stage_vs":null,"state_condition":"new","sm_ack":null,
      *    "lfr_ack":null,"sequence":null,"attempts":0,"transaction":"iPYvI_VT4Dovb","player_transaction":"s0OXguCLB74",
-     *    "server":null,"duration":null,"by_whom":"unknown - 6.1.1 (8854) #e06341d7f","diagnostic":false,"debug":"",
+     *    "server":null,"duration":null,"by_whom":"unknown - 6.32.0 (124007) #0cd7f73de","diagnostic":false,"debug":"",
      *    "opts_1":0,"target":"camera","target_id":4000001,"parent_command_id":null,"camera_id":4000001,"siren_id":null,
      *    "firmware_id":null,"network_id":2000001,"account_id":1000001,"sync_module_id":3000001}
      **/
