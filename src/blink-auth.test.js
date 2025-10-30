@@ -9,6 +9,7 @@ const BlinkAPI = require('./blink-api');
 
 const logger = { log: () => {}, error: () => {} };
 setLogger(logger, false, false);
+const OAUTH_LOGIN_URL = 'https://api.oauth.blink.com/oauth/token';
 
 describe('Blink OAuth persistence', () => {
     let tempDir;
@@ -77,7 +78,7 @@ describe('Blink OAuth persistence', () => {
         const postMock = jest
             .spyOn(BlinkAPI.prototype, 'post')
             .mockImplementation(async function (path, body) {
-                if (path === '/oauth/token') {
+                if (path === OAUTH_LOGIN_URL) {
                     expect(body).toBeInstanceOf(URLSearchParams);
                     const payload = Object.fromEntries(body.entries());
                     expect(payload).toMatchObject({
@@ -125,6 +126,7 @@ describe('Blink OAuth persistence', () => {
         await blink.authenticate();
 
         expect(postMock).toHaveBeenCalledTimes(2);
+        expect(postMock.mock.calls[0][0]).toBe(OAUTH_LOGIN_URL);
         expect(postMock.mock.calls[1][0]).toBe('/api/v5/account/login');
 
         const stored = JSON.parse(fs.readFileSync(cachePath, 'utf8'));

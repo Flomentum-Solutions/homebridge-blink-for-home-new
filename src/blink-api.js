@@ -11,8 +11,18 @@ const { stringify } = require('./stringify');
 // crypto.randomBytes(16).toString("hex").toUpperCase().replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5")
 const DEFAULT_BLINK_CLIENT_UUID = '1EAF7C88-2AAB-BC51-038D-DB96D6EEE22F';
 const BLINK_API_HOST = 'immedia-semi.com';
-const PROD_BASE = `https://rest-prod.${BLINK_API_HOST}`;
+const DEFAULT_HOST_PREFIX = 'rest-prod';
+const DEFAULT_URL = `${DEFAULT_HOST_PREFIX}.${BLINK_API_HOST}`;
+const BASE_URL = `https://${DEFAULT_URL}`;
+const OAUTH_BASE_URL = 'https://api.oauth.blink.com';
+const LOGIN_ENDPOINT = `${OAUTH_BASE_URL}/oauth/token`;
+const REFRESH_ENDPOINT = `${OAUTH_BASE_URL}/oauth/refresh`;
 const CACHE = new Map();
+
+const buildRestBaseUrl = (region = 'prod') => {
+    const shard = region && region !== 'prod' ? `rest-${region}` : DEFAULT_HOST_PREFIX;
+    return `https://${shard}.${BLINK_API_HOST}`;
+};
 
 const DEFAULT_CLIENT_OPTIONS = {
     notificationKey: null,
@@ -455,20 +465,18 @@ class BlinkAPI {
         //  - absolute URLs pass through
         //  - tier_info must always hit the prod host regardless of shard
         //  - otherwise, hit the discovered region shard (u003, prde, etc.)
-        let urlPrefix = '';
+        let requestUrl = targetPath;
         if (!targetPath.startsWith('http')) {
             if (targetPath.startsWith('/oauth/')) {
-                urlPrefix = PROD_BASE;
+                requestUrl = `${OAUTH_BASE_URL}${targetPath}`;
             }
             else if (targetPath === '/api/v1/account/tier_info') {
                 // Blink expects tier_info on the prod host regardless of shard.
-                urlPrefix = PROD_BASE;
+                requestUrl = `${BASE_URL}${targetPath}`;
             } else {
-                urlPrefix = `https://rest-${this.region || 'prod'}.${BLINK_API_HOST}`;
+                requestUrl = `${buildRestBaseUrl(this.region || 'prod')}${targetPath}`;
             }
         }
-
-        const requestUrl = targetPath.startsWith('http') ? targetPath : `${urlPrefix}${targetPath}`;
         log.info(`${method} ${requestUrl} @${maxTTL}`);
         log.debug(requestOptions);
 
@@ -760,7 +768,7 @@ class BlinkAPI {
         };
 
         try {
-            const response = await this.post('/oauth/token', params, false, httpErrorAsError, { skipAuthHeader: true });
+            const response = await this.post(LOGIN_ENDPOINT, params, false, httpErrorAsError, { skipAuthHeader: true });
             if (!httpErrorAsError && typeof response === 'string' && /not\s+found/i.test(response)) {
                 return await fallbackLogin('legacy 404 response body');
             }
@@ -788,7 +796,7 @@ class BlinkAPI {
         add('scope', scope);
         add('client_secret', client.oauthClientSecret);
 
-        return await this.post('/oauth/refresh', params, false, httpErrorAsError, { skipAuthHeader: true });
+        return await this.post(REFRESH_ENDPOINT, params, false, httpErrorAsError, { skipAuthHeader: true });
     }
 
     /**
