@@ -11,7 +11,7 @@ const CALLBACK_PATH = '/blink/oauth/callback';
 const SESSION_TTL_MS = 5 * 60 * 1000;
 
 function createLoggerOutputs(candidate) {
-    const fallback = sharedLog;
+    const fallback = sharedLog || console;
     const source = candidate || fallback;
 
     const call = typeof source === 'function'
@@ -43,7 +43,6 @@ class PluginUiServer extends HomebridgePluginUiServer {
 
         this.loggerOutput = createLoggerOutputs(customLog);
         this.logLevel = 'error';
-        this.log.info('PluginUiServer constructor called with customLog:', !!customLog);
 
         const logFn = (...args) => this.loggerOutput.call(...args);
         logFn.error = (...args) => this.loggerOutput.error(...args);
@@ -60,10 +59,12 @@ class PluginUiServer extends HomebridgePluginUiServer {
         logFn.warn = (...args) => this.loggerOutput.warn(...args);
         this.log = logFn;
 
+        this.log.info('PluginUiServer constructor called with customLog:', !!customLog);
+
         this.sessions = new Map();
 
         this.onRequest('/oauth/start', async (payload) => {
-            this.log.info('/oauth/start requested, payload:', JSON.stringify(payload));
+            try { this.log.info('/oauth/start requested, payload:', JSON.stringify(payload ?? {})); } catch {}
             try {
                 return await this.handleOAuthStart(payload);
             } catch (err) {
@@ -73,7 +74,7 @@ class PluginUiServer extends HomebridgePluginUiServer {
         });
         
         this.onRequest('/oauth/status', async (payload) => {
-            this.log.info('/oauth/status requested, payload:', JSON.stringify(payload));
+            try { this.log.info('/oauth/status requested, payload:', JSON.stringify(payload ?? {})); } catch {}
             try {
                 return await this.handleOAuthStatus(payload);
             } catch (err) {
@@ -254,6 +255,8 @@ class PluginUiServer extends HomebridgePluginUiServer {
     async startCallbackServer(session, requestedPort) {
         const host = '127.0.0.1';
         let port = Number(requestedPort || 52888);
+
+        this.log.info(`Attempting to start callback server for session ${session.id} starting at port ${port}`);
 
         try {
             port = await this.findFreePort(port, host);
