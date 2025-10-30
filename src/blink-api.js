@@ -333,7 +333,10 @@ class BlinkAPI {
     async _request(method = 'GET', path = '/', payload = null, maxTTL = null, autologin = true, httpErrorAsError = true) {
         // first invocation we refresh the API tokens
         if (autologin) await this.login();
-        const targetPath = path.replace('{accountID}', this.accountID).replace('{clientID}', this.clientID);
+        let targetPath = path.replace('{accountID}', this.accountID).replace('{clientID}', this.clientID);
+        if (!targetPath.startsWith('http') && !targetPath.startsWith('/')) {
+            targetPath = `/${targetPath}`;
+        }
 
         const cacheKey = `${method}:${targetPath}`;
         const now = Date.now();
@@ -371,8 +374,6 @@ class BlinkAPI {
             options.headers['Content-Type'] = 'application/json';
         }
 
-        log.info(`${method} ${targetPath} @${maxTTL}`);
-        log.debug(options);
         // Build the base URL:
         //  - absolute URLs pass through
         //  - tier_info must always hit the prod host regardless of shard
@@ -390,7 +391,11 @@ class BlinkAPI {
             }
         }
 
-        const res = await limitedFetch(`${urlPrefix}${targetPath}`, options).catch(async e => {
+        const requestUrl = targetPath.startsWith('http') ? targetPath : `${urlPrefix}${targetPath}`;
+        log.info(`${method} ${requestUrl} @${maxTTL}`);
+        log.debug(options);
+
+        const res = await limitedFetch(requestUrl, options).catch(async e => {
             if (!/ECONNRESET|ETIMEDOUT|ESOCKETTIMEDOUT|disconnected/.test(e.message)) log.error(e);
             // TODO: handle network errors more gracefully
             if (autologin) return null;
@@ -427,7 +432,7 @@ class BlinkAPI {
             // TODO: handle error states more gracefully
             const statusMsg = res.headers.get('status') || (res.status + ' ' + res.statusText);
             const logFn = httpErrorAsError ? log.error : log.debug;
-            logFn(`${method} ${targetPath} (${statusMsg})`);
+            logFn(`${method} ${requestUrl} (${statusMsg})`);
             logFn(respBody ?? Object.fromEntries(res.headers));
             if (httpErrorAsError) {
                 throw new Error(res.headers.get('status'));
@@ -435,14 +440,14 @@ class BlinkAPI {
         }
         else if (res.status >= 500) {
             // TODO: how do we get out of infinite retry?
-            log.error(`RETRY: ${method} ${targetPath} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
+            log.error(`RETRY: ${method} ${requestUrl} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
             this.token = null; // force a re-login if 5xx errors
             await sleep(1000);
             return this._request(method, path, payload, maxTTL, false, httpErrorAsError);
         }
         else if (res.status === 429) {
             // TODO: how do we get out of infinite retry?
-            log.error(`RETRY: ${method} ${targetPath} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
+            log.error(`RETRY: ${method} ${requestUrl} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
             await sleep(500);
             return this._request(method, path, payload, maxTTL, false, httpErrorAsError);
         }
@@ -450,17 +455,17 @@ class BlinkAPI {
             if (httpErrorAsError) {
                 if (!/busy/.test(respBody?.message)) {
                     const status = res.headers.get('status') || res.status + ' ' + res.statusText;
-                    throw new Error(`${method} ${targetPath} (${status})`);
+                    throw new Error(`${method} ${requestUrl} (${status})`);
                 }
             }
         }
         else if (res.status >= 400) {
             const status = res.headers.get('status') || res.status + ' ' + res.statusText;
             const logFn2 = httpErrorAsError ? log.error : log.debug;
-            logFn2(`${method} ${targetPath} (${status})`);
+            logFn2(`${method} ${requestUrl} (${status})`);
             logFn2(respBody ?? Object.fromEntries(res.headers));
             if (httpErrorAsError) {
-                throw new Error(`${method} ${targetPath} (${status})`);
+                throw new Error(`${method} ${requestUrl} (${status})`);
             }
         }
         // TODO: what about other 3xx?
@@ -644,7 +649,42 @@ class BlinkAPI {
         };
         if (this.auth.pin) data.reauth = 'true';
 
-        return await this.post('/oauth/token', data, false, httpErrorAsError);
+        const fallbackLogin = async reason => {
+            log.debug('Blink OAuth token endpoint unavailable, using legacy login:', reason);
+            const legacyPayload = {
+                email: this.auth.email,
+                password: this.auth.password,
+                client_name: client.name,
+                client_type: client.type,
+                device_identifier: client.device,
+                os_version: client.os,
+                app_version: client.appVersion,
+                notification_key: client.notificationKey || this.auth.notificationKey,
+                unique_id: this.auth.clientUUID,
+            };
+            if (client.locale) legacyPayload.locale = client.locale;
+            if (this.auth.pin) legacyPayload.pin = this.auth.pin;
+            return await this.post('/api/v5/account/login', legacyPayload, false, httpErrorAsError);
+        };
+
+        const isOAuthNotFoundError = err => {
+            if (!err) return false;
+            const message = err?.message || '';
+            return /\/oauth\/token/.test(message) && /404/.test(message);
+        };
+
+        try {
+            const response = await this.post('/oauth/token', data, false, httpErrorAsError);
+            if (!httpErrorAsError && typeof response === 'string' && /not\s+found/i.test(response)) {
+                return await fallbackLogin('legacy 404 response body');
+            }
+            return response;
+        } catch (err) {
+            if (isOAuthNotFoundError(err)) {
+                return await fallbackLogin(err.message || err);
+            }
+            throw err;
+        }
     }
 
     async refreshGrant(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {

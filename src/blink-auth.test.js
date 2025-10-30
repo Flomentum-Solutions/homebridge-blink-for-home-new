@@ -70,6 +70,61 @@ describe('Blink OAuth persistence', () => {
         expect(stored.expires_at).toBeGreaterThan(Date.now());
     });
 
+    test('falls back to legacy login when oauth endpoint is missing', async () => {
+        const cachePath = path.join(tempDir, 'cache.json');
+
+        const postMock = jest
+            .spyOn(BlinkAPI.prototype, 'post')
+            .mockImplementation(async function (path, body) {
+                if (path === '/oauth/token') {
+                    return '<h1>Not Found</h1>';
+                }
+                if (path === '/api/v5/account/login') {
+                    expect(body).toMatchObject({
+                        email: 'user@example.com',
+                        password: 'password1',
+                        client_name: 'iPhone',
+                        client_type: 'ios',
+                        device_identifier: 'iPhone17,1',
+                        unique_id: 'A5BF5C52-56F3-4ADB-A7C2-A70619552084',
+                    });
+                    return {
+                        auth: { token: 'legacy-token' },
+                        account: {
+                            account_id: 555,
+                            client_id: 777,
+                            tier: 'u002',
+                        },
+                    };
+                }
+                throw new Error(`Unexpected path ${path}`);
+            });
+
+        jest.spyOn(BlinkAPI.prototype, 'get').mockResolvedValue({ tier: 'u002' });
+
+        const blink = new Blink(
+            'A5BF5C52-56F3-4ADB-A7C2-A70619552084',
+            { email: 'user@example.com', password: 'password1' },
+            undefined,
+            undefined,
+            undefined,
+            cachePath
+        );
+
+        await blink.authenticate();
+
+        expect(postMock).toHaveBeenCalledTimes(2);
+        expect(postMock.mock.calls[1][0]).toBe('/api/v5/account/login');
+
+        const stored = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+        expect(stored.access_token).toBe('legacy-token');
+        expect(stored.refresh_token).toBeNull();
+        expect(stored.account_id).toBe(555);
+        expect(stored.client_id).toBe(777);
+        expect(stored.region).toBe('u002');
+        expect(stored.expires_at).toBe(0);
+    });
+
     test('refreshes expired bundle automatically', async () => {
         const cachePath = path.join(tempDir, 'cache.json');
         const bundle = {
