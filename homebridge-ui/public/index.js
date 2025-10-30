@@ -153,6 +153,7 @@
                 hardwareId: state.config.hardwareId || defaultHardwareId(),
                 redirectHost: window.location.hostname,
                 redirectProtocol: window.location.protocol,
+                logging: state.config.logging,
             };
             const response = await ui.request('/oauth/start', payload);
             if (response?.error) {

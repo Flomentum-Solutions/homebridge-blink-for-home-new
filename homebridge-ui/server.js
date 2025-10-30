@@ -2,6 +2,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { URL, URLSearchParams } = require('url');
 const { HomebridgePluginUiServer } = require('@homebridge/plugin-ui-utils');
+const { log: sharedLog } = require('../src/log');
 
 const OAUTH_AUTHORIZE_URL = 'https://api.oauth.blink.com/oauth/v2/authorize';
 const OAUTH_SIGNIN_URL = 'https://api.oauth.blink.com/oauth/v2/signin';
@@ -9,11 +10,54 @@ const OAUTH_TOKEN_URL = 'https://api.oauth.blink.com/oauth/token';
 const CALLBACK_PATH = '/blink/oauth/callback';
 const SESSION_TTL_MS = 5 * 60 * 1000;
 
+function createLoggerOutputs(candidate) {
+    const fallback = sharedLog;
+    const source = candidate || fallback;
+
+    const call = typeof source === 'function'
+        ? (...args) => source(...args)
+        : (...args) => fallback(...args);
+
+    const error = typeof source.error === 'function'
+        ? source.error.bind(source)
+        : (typeof fallback.error === 'function' ? fallback.error.bind(fallback) : call);
+
+    const info = typeof source.info === 'function'
+        ? source.info.bind(source)
+        : (typeof fallback.info === 'function' ? fallback.info.bind(fallback) : call);
+
+    const debug = typeof source.debug === 'function'
+        ? source.debug.bind(source)
+        : info;
+
+    const warn = typeof source.warn === 'function'
+        ? source.warn.bind(source)
+        : error;
+
+    return { call, error, info, debug, warn };
+}
+
 class PluginUiServer extends HomebridgePluginUiServer {
-    constructor(log) {
+    constructor(customLog) {
         super();
 
-        this.log = log || console;
+        this.loggerOutput = createLoggerOutputs(customLog);
+        this.logLevel = 'error';
+
+        const logFn = (...args) => this.loggerOutput.call(...args);
+        logFn.error = (...args) => this.loggerOutput.error(...args);
+        logFn.info = (...args) => {
+            if (this.isVerbose()) {
+                this.loggerOutput.info(...args);
+            }
+        };
+        logFn.debug = (...args) => {
+            if (this.isDebug()) {
+                this.loggerOutput.debug(...args);
+            }
+        };
+        logFn.warn = (...args) => this.loggerOutput.warn(...args);
+        this.log = logFn;
 
         this.sessions = new Map();
 
@@ -61,6 +105,8 @@ class PluginUiServer extends HomebridgePluginUiServer {
     }
 
     async handleOAuthStart(payload = {}) {
+        this.setLogLevel(payload.logging);
+
         const requestedPort = Number(payload.redirectPort || 52888);
         if (!Number.isInteger(requestedPort) || requestedPort < 1025 || requestedPort > 65535) {
             throw new Error('Redirect port must be between 1025 and 65535.');
@@ -150,6 +196,27 @@ class PluginUiServer extends HomebridgePluginUiServer {
             };
         }
         return { status: 'pending' };
+    }
+
+    setLogLevel(level) {
+        const setting = typeof level === 'string' ? level.toLowerCase() : '';
+        if (setting === 'debug') {
+            this.logLevel = 'debug';
+        }
+        else if (setting === 'verbose') {
+            this.logLevel = 'verbose';
+        }
+        else {
+            this.logLevel = 'error';
+        }
+    }
+
+    isVerbose() {
+        return this.logLevel === 'verbose' || this.logLevel === 'debug';
+    }
+
+    isDebug() {
+        return this.logLevel === 'debug';
     }
 
     normalizeProtocol(input) {

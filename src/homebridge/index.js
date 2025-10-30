@@ -1,10 +1,6 @@
 const path = require('path')
 const { setLogger } = require('../log')
 const hap = require('./hap')
-const Server = require(
-  path.join(__dirname, '..', '..', 'homebridge-ui', 'server')
-);
-console.log('Server module:', Server);
 const BLINK_STATUS_EVENT_LOOP = 10 // internal poll interval
 
 class HomebridgeBlink {
@@ -23,11 +19,6 @@ class HomebridgeBlink {
             logger,
             ['verbose', 'debug'].includes(this.config['logging']),
             this.config['logging'] === 'debug'
-        )
-
-        this.server = new Server(this.log);
-        this.log.info(
-            'Server logging link to Homebridge UI initialized.'
         )
 
         this.accessoryLookup = []
