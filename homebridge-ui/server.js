@@ -379,3 +379,6 @@ class PluginUiServer extends HomebridgePluginUiServer {
 }
 
 module.exports = PluginUiServer;
+
+function startPluginUiServer() { return new PluginUiServer(); }
+if (require.main === module) { startPluginUiServer(); }
