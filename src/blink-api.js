@@ -38,6 +38,7 @@ const DEFAULT_CLIENT_OPTIONS = {
     oauthScope: 'client offline_access',
     oauthClientId: 'blink/com.immediasemi.ios.blink',
     oauthClientSecret: 'cBl6zzw1bYw3mjKwHnGXcgZEnKQS68EX',
+    hardwareId: DEFAULT_BLINK_CLIENT_UUID,
 };
 
 /* eslint-disable */
@@ -198,6 +199,8 @@ class BlinkAPI {
             clientUUID: clientUUID || process.env.BLINK_CLIENT_UUID || ini.client || DEFAULT_BLINK_CLIENT_UUID,
             notificationKey: process.env.BLINK_NOTIFICATION_KEY || ini.notification ||
                 crypto.randomBytes(32).toString('hex'),
+                hardwareId: auth.hardwareId || process.env.BLINK_HARDWARE_ID || ini.hardware_id ||
+                clientUUID || DEFAULT_BLINK_CLIENT_UUID,
         }, auth);
         const clientOverrides = Object.entries({
             notificationKey: this.auth.notificationKey,
@@ -213,6 +216,7 @@ class BlinkAPI {
             oauthScope: process.env.BLINK_OAUTH_SCOPE || ini.oauth_scope,
             oauthClientId: process.env.BLINK_OAUTH_CLIENT_ID || ini.oauth_client_id,
             oauthClientSecret: process.env.BLINK_OAUTH_CLIENT_SECRET || ini.oauth_client_secret,
+            hardwareId: this.auth.hardwareId,
         }).reduce((acc, [key, value]) => {
             if (value !== undefined && value !== null && value !== '') {
                 acc[key] = value;
@@ -693,6 +697,9 @@ class BlinkAPI {
         }
 
         if (!session) {
+            if (!this.auth?.password) {
+                throw new Error('Blink OAuth session expired; please re-authorize via the Homebridge UI.');
+            }
             session = await this.passwordGrant(this._clientOptions, httpErrorAsError);
         }
 
@@ -733,6 +740,7 @@ class BlinkAPI {
         add('client_name', client.name);
         add('client_type', client.type);
         add('device_identifier', client.device);
+        add('hardware_id', client.hardwareId || this.auth.hardwareId || this.auth.clientUUID);
         add('os_version', client.os);
         add('app_version', client.appVersion);
         add('notification_key', client.notificationKey || this.auth.notificationKey);
@@ -749,6 +757,7 @@ class BlinkAPI {
                 client_name: client.name,
                 client_type: client.type,
                 device_identifier: client.device,
+                hardware_id: client.hardwareId || this.auth.hardwareId || this.auth.clientUUID,
                 os_version: client.os,
                 app_version: client.appVersion,
                 app_name: client.appName,
@@ -795,6 +804,7 @@ class BlinkAPI {
         add('client_id', client.oauthClientId || this.auth.clientUUID);
         add('scope', scope);
         add('client_secret', client.oauthClientSecret);
+        add('hardware_id', client.hardwareId || this.auth.hardwareId || this.auth.clientUUID);
 
         return await this.post(REFRESH_ENDPOINT, params, false, httpErrorAsError, { skipAuthHeader: true });
     }

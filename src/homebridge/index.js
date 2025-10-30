@@ -27,10 +27,12 @@ class HomebridgeBlink {
         this.accessories = {}
         this.disabled = false
 
-        if (!this.config.username || !this.config.password) {
+        const hasLegacyCredentials = Boolean(this.config.username && this.config.password);
+        const hasOAuthTokens = Boolean(this.config.accessToken || this.config.refreshToken);
+        if (!hasLegacyCredentials && !hasOAuthTokens) {
             this.disabled = true
             this.log.error(
-                'Missing Blink account credentials {"email","password"} in config.json'
+                'Blink requires OAuth tokens or legacy credentials. Launch the Homebridge UI to sign in.'
             )
             this.log.error(
                 'Blink platform initialisation skipped until credentials are provided.'
@@ -125,16 +127,19 @@ class HomebridgeBlink {
     }
 
     async setupBlink () {
-        if (!this.config.username || !this.config.password) {
-            throw Error('Missing Blink {"email","password"} in config.json')
+        const hasLegacyCredentials = Boolean(this.config.username && this.config.password)
+        const hasOAuthTokens = Boolean(this.config.accessToken || this.config.refreshToken)
+        if (!hasLegacyCredentials && !hasOAuthTokens) {
+            throw Error('Missing Blink credentials or OAuth tokens in config.json')
         }
-        const clientUUID = this.api.hap.uuid.generate(
-            `${this.config.name}${this.config.username}`
-        )
+        const uuidSeed = `${this.config.name || 'Blink'}:${this.config.username || ''}`
+        const clientUUID = this.config.hardwareId || this.api.hap.uuid.generate(uuidSeed)
         const auth = {
             email: this.config.username,
             password: this.config.password,
-            pin: this.config.pin
+            pin: this.config.pin,
+            hardwareId: clientUUID,
+            clientUUID
         }
 
         const oauthCachePath = path.join(
@@ -147,6 +152,25 @@ class HomebridgeBlink {
             ...this.config,
             tokenCachePath: oauthCachePath
         })
+        blink.blinkAPI._clientOptions = Object.assign(
+            {},
+            blink.blinkAPI._clientOptions,
+            {
+                hardwareId: auth.hardwareId || blink.blinkAPI._clientOptions?.hardwareId,
+                oauthClientId: this.config.oauthClientId || blink.blinkAPI._clientOptions?.oauthClientId,
+                oauthScope: this.config.oauthScope || blink.blinkAPI._clientOptions?.oauthScope,
+            }
+        )
+        if (this.config.accessToken || this.config.refreshToken) {
+            blink.blinkAPI.useOAuthBundle({
+                access_token: this.config.accessToken,
+                refresh_token: this.config.refreshToken,
+                expires_at: this.config.tokenExpiresAt,
+                account_id: this.config.accountId,
+                client_id: this.config.clientId,
+                region: this.config.region,
+            })
+        }
         try {
             await blink.authenticate()
             await blink.refreshData()

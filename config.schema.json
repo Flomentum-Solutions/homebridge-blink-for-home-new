@@ -12,16 +12,83 @@
             },
             "username": {
                 "title": "username",
-                "type": "string"
+                "type": "string",
+                "description": "Legacy credential field. Optional when using the OAuth sign-in flow."
             },
             "password": {
                 "title": "password",
-                "type": "string"
+                "type": "string",
+                "description": "Legacy credential field. Optional when using the OAuth sign-in flow."
             },
             "pin": {
                 "title": "PIN",
                 "description": "The PIN sent during 2FA (leave blank on first use; enter after first auth attempt)",
                 "type": "number"
+            },
+            "hardwareId": {
+                "title": "Hardware ID",
+                "type": "string",
+                "description": "Device identifier used for Blink OAuth. Generated automatically during sign in.",
+                "readOnly": true
+            },
+            "redirectPort": {
+                "title": "Local listener port",
+                "type": "integer",
+                "default": 52888,
+                "description": "Port used by the Homebridge host to capture the Blink OAuth callback."
+            },
+            "oauthClientId": {
+                "title": "OAuth Client ID",
+                "type": "string",
+                "default": "ios",
+                "description": "Identifier passed to Blink when requesting authorization codes."
+            },
+            "oauthScope": {
+                "title": "OAuth Scope",
+                "type": "string",
+                "default": "client offline_access",
+                "description": "Scopes requested during Blink OAuth authorization."
+            },
+            "signInStatus": {
+                "title": "Sign-in status",
+                "type": "string",
+                "enum": [
+                    "Not signed in",
+                    "Signed in",
+                    "Error"
+                ],
+                "default": "Not signed in",
+                "readOnly": true
+            },
+            "accessToken": {
+                "title": "Access Token",
+                "type": "string",
+                "readOnly": true
+            },
+            "refreshToken": {
+                "title": "Refresh Token",
+                "type": "string",
+                "readOnly": true
+            },
+            "tokenExpiresAt": {
+                "title": "Token Expiry (ms)",
+                "type": "number",
+                "readOnly": true
+            },
+            "accountId": {
+                "title": "Blink Account ID",
+                "type": "number",
+                "readOnly": true
+            },
+            "clientId": {
+                "title": "Blink Client ID",
+                "type": "number",
+                "readOnly": true
+            },
+            "region": {
+                "title": "Blink Region",
+                "type": "string",
+                "readOnly": true
             },
             "ffmpegPath": {
                 "title": "FFmpeg Path",
@@ -115,9 +182,7 @@
             }
         },
         "required": [
-            "name",
-            "username",
-            "password"
+            "name"
         ]
     },
     "layout": [
@@ -139,6 +204,25 @@
             "key": "pin",
             "placeholder": "2FA pin",
             "notitle": true
+        },
+        {
+            "type": "section",
+            "title": "Blink OAuth",
+            "expandable": true,
+            "expanded": false,
+            "items": [
+                "signInStatus",
+                "hardwareId",
+                "redirectPort",
+                "oauthClientId",
+                "oauthScope",
+                "accessToken",
+                "refreshToken",
+                "tokenExpiresAt",
+                "accountId",
+                "clientId",
+                "region"
+            ]
         },
         {
             "type": "section",

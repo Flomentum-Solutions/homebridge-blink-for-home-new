@@ -193,4 +193,15 @@ describe('Blink OAuth persistence', () => {
         expect(stored.region).toBe('u010');
         expect(stored.expires_at).toBeGreaterThan(Date.now());
     });
+
+    test('refuses password fallback when credentials are missing', async () => {
+        const api = new BlinkAPI('A5BF5C52-56F3-4ADB-A7C2-A70619552084', { email: 'user@example.com' });
+        api.refreshToken = 'refresh-token';
+
+        jest.spyOn(api, 'refreshGrant').mockRejectedValue(new Error('invalid_grant'));
+        const passwordSpy = jest.spyOn(api, 'passwordGrant');
+
+        await expect(api.login(false, undefined, false)).rejects.toThrow(/re-authorize/);
+        expect(passwordSpy).not.toHaveBeenCalled();
+    });
 });
