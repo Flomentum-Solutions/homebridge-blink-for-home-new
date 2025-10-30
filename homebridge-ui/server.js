@@ -42,7 +42,7 @@ class PluginUiServer extends HomebridgePluginUiServer {
         super();
 
         this.loggerOutput = createLoggerOutputs(customLog);
-        this.logLevel = 'error';
+        this.logLevel = 'verbose';
 
         const logFn = (...args) => this.loggerOutput.call(...args);
         logFn.error = (...args) => this.loggerOutput.error(...args);
