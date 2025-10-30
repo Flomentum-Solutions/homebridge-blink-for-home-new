@@ -429,9 +429,9 @@ async function liveview(id, options) {
                                 }
                             });
                             ff.on('error', (err) => {
-                                this.log.error(`ffmpeg spawn error (${resolvedFfmpeg})`, err);
+                                console.log.error(`ffmpeg spawn error (${resolvedFfmpeg})`, err);
                                 if (err && err.code === 'ENOENT') {
-                                    this.log.error('ffmpeg not found. Set "ffmpegPath" in config or install ffmpeg.');
+                                    console.log.error('ffmpeg not found. Set "ffmpegPath" in config or install ffmpeg.');
                                 }
                             });
                         }

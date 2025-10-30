@@ -4,13 +4,16 @@ const { URL, URLSearchParams } = require('url');
 const { HomebridgePluginUiServer } = require('@homebridge/plugin-ui-utils');
 
 const OAUTH_AUTHORIZE_URL = 'https://api.oauth.blink.com/oauth/v2/authorize';
+const OAUTH_SIGNIN_URL = 'https://api.oauth.blink.com/oauth/v2/signin';
 const OAUTH_TOKEN_URL = 'https://api.oauth.blink.com/oauth/token';
 const CALLBACK_PATH = '/blink/oauth/callback';
 const SESSION_TTL_MS = 5 * 60 * 1000;
 
 class PluginUiServer extends HomebridgePluginUiServer {
-    constructor() {
+    constructor(log) {
         super();
+
+        this.log = log;
 
         this.sessions = new Map();
 
@@ -30,8 +33,8 @@ class PluginUiServer extends HomebridgePluginUiServer {
         const host = payload.redirectHost || 'localhost';
         const redirectUri = `${protocol}//${host}:${port}${CALLBACK_PATH}`;
         const hardwareId = payload.hardwareId || crypto.randomUUID();
-        const clientId = payload.clientId || 'ios';
-        const scope = payload.scope || 'client offline_access';
+        const clientId = 'ios';
+        const scope = 'client';
 
         const sessionId = crypto.randomUUID();
         const state = crypto.randomBytes(16).toString('hex');
@@ -63,15 +66,15 @@ class PluginUiServer extends HomebridgePluginUiServer {
             code_challenge: codeChallenge,
             code_challenge_method: 'S256',
             hardware_id: hardwareId,
-            app_brand: payload.appBrand || 'blink',
-            app_version: payload.appVersion || '49.2',
-            device_brand: payload.deviceBrand || 'Homebridge',
-            device_model: payload.deviceModel || 'Homebridge',
-            device_os_version: payload.deviceOsVersion || `Node ${process.versions.node}`,
-            entry_source: 'homebridge',
+            app_brand: 'blink',
+            app_version: '49.2',
+            device_brand: 'Apple',
+            device_model: 'iPhone18,1',
+            device_os_version: '26.1',
         });
 
         const authUrl = `${OAUTH_AUTHORIZE_URL}?${query.toString()}`;
+        this.log.debug("Constructed Auth URL: ", authUrl);
 
         this.sessions.set(sessionId, session);
         session.timeout = setTimeout(() => this.failSession(sessionId, 'Timed out waiting for Blink OAuth callback.'), SESSION_TTL_MS);
@@ -120,14 +123,16 @@ class PluginUiServer extends HomebridgePluginUiServer {
         const server = http.createServer((req, res) => this.handleCallbackRequest(session.id, req, res));
         await new Promise((resolve, reject) => {
             server.once('error', reject);
-            server.listen(port, '0.0.0.0', resolve);
+            server.listen(port, '127.0.0.1', resolve);
         });
         session.server = server;
+        this.log.debug("Starting server on port %s", port);
     }
 
     async handleCallbackRequest(sessionId, req, res) {
         const session = this.sessions.get(sessionId);
         if (!session) {
+            this.log.debug("Blink session expired. Close this tab and retry from Homebridge.", req.url);
             this.respond(res, 410, 'Blink session expired. Close this tab and retry from Homebridge.');
             return;
         }
@@ -135,6 +140,7 @@ class PluginUiServer extends HomebridgePluginUiServer {
         try {
             const url = new URL(req.url, session.redirectUri);
             if (url.pathname !== CALLBACK_PATH) {
+                this.log.debug("Not Found", req.url);
                 this.respond(res, 404, 'Not Found');
                 return;
             }
@@ -142,19 +148,22 @@ class PluginUiServer extends HomebridgePluginUiServer {
             const returnedState = url.searchParams.get('state');
             const code = url.searchParams.get('code');
             if (returnedState !== session.state) {
+                this.log.debug("State mismatch in Blink OAuth callback.", req.url);
                 this.failSession(sessionId, 'State mismatch in Blink OAuth callback.');
                 this.respond(res, 400, 'Blink OAuth failed: state mismatch. Close this tab and try again.');
                 return;
             }
             if (!code) {
+                this.log.debug("Missing authorization code in Blink callback.", req.url);
                 this.failSession(sessionId, 'Missing authorization code in Blink callback.');
                 this.respond(res, 400, 'Blink OAuth failed: missing authorization code.');
                 return;
             }
-
+            this.log.debug("Success!", req.url);
             this.respond(res, 200, '<h1>Success!</h1><p>You can close this window and return to Homebridge.</p>');
             await this.exchangeCode(session, code);
         } catch (err) {
+            this.log.debug("Unexpected Error", req.url);
             this.failSession(sessionId, err?.message || 'Unexpected Blink OAuth error.');
             this.respond(res, 500, 'Blink OAuth flow encountered an unexpected error.');
         } finally {
@@ -214,7 +223,7 @@ class PluginUiServer extends HomebridgePluginUiServer {
         session.error = message;
         this.clearTimeout(session);
         this.teardownSessionServer(sessionId);
-        this.log(`Blink OAuth session ${sessionId} failed: ${message}`);
+        this.log.error(`Blink OAuth session ${sessionId} failed: ${message}`);
     }
 
     teardownSessionServer(sessionId) {
