@@ -13,7 +13,7 @@ class PluginUiServer extends HomebridgePluginUiServer {
     constructor(log) {
         super();
 
-        this.log = log;
+        this.log = log || console;
 
         this.sessions = new Map();
 
@@ -23,40 +23,88 @@ class PluginUiServer extends HomebridgePluginUiServer {
         this.ready();
     }
 
+    // helper: try listening on a port; resolves with server and port if successful, rejects if error
+    tryListen(server, port, host = '127.0.0.1') {
+        return new Promise((resolve, reject) => {
+            server.once('error', err => {
+            server.removeAllListeners('listening');
+            reject(err);
+            });
+            server.once('listening', () => {
+            server.removeAllListeners('error');
+            resolve({ server, port });
+            });
+            server.listen(port, host);
+        });
+    }
+
+    // helper: attempt to find a free port starting from basePort, up to some limit
+    async findFreePort(basePort = 1025, host = '127.0.0.1', maxPort = 65535) {
+        let port = basePort;
+        while (port <= maxPort) {
+            const server = http.createServer();  // simple server to test binding
+            try {
+                const result = await this.tryListen(server, port, host);
+                // close that test server, we will reuse port for real server
+                result.server.close();
+                return port;
+            } catch (err) {
+                if (err.code === 'EADDRINUSE') {
+                    port++;
+                    continue;
+                }
+                // some other error - throw
+                throw err;
+            }
+        }
+        throw new Error(`No free port found in range ${basePort}-${maxPort}`);
+    }
+
     async handleOAuthStart(payload = {}) {
-        const port = Number(payload.redirectPort || 52888);
-        if (!Number.isInteger(port) || port < 1025 || port > 65535) {
+        const requestedPort = Number(payload.redirectPort || 52888);
+        if (!Number.isInteger(requestedPort) || requestedPort < 1025 || requestedPort > 65535) {
             throw new Error('Redirect port must be between 1025 and 65535.');
         }
 
         const protocol = this.normalizeProtocol(payload.redirectProtocol);
         const host = payload.redirectHost || 'localhost';
-        const redirectUri = `${protocol}//${host}:${port}${CALLBACK_PATH}`;
+
         const hardwareId = payload.hardwareId || crypto.randomUUID();
         const clientId = 'ios';
         const scope = 'client';
-
         const sessionId = crypto.randomUUID();
         const state = crypto.randomBytes(16).toString('hex');
         const codeVerifier = this.buildCodeVerifier();
         const codeChallenge = this.buildCodeChallenge(codeVerifier);
 
         const session = {
-            id: sessionId,
-            state,
-            codeVerifier,
-            clientId,
-            scope,
-            redirectUri,
-            hardwareId,
-            createdAt: Date.now(),
-            status: 'pending',
-            timeout: null,
-            server: null,
+          id: sessionId,
+          state,
+          codeVerifier,
+          clientId,
+          scope,
+          hardwareId,
+          createdAt: Date.now(),
+          status: 'pending',
+          timeout: null,
+          server: null,
+          redirectUri: null,
+          callbackPort: null,
+          tokens: null,
+          error: null,
         };
 
-        await this.startCallbackServer(session, port);
+        this.sessions.set(sessionId, session);
 
+        // find free port & spin listener
+        await this.startCallbackServer(session, requestedPort);
+
+        // Now that session.callbackPort is set:
+        const actualPort = session.callbackPort;
+        const redirectUri = `${protocol}//${host}:${actualPort}${CALLBACK_PATH}`;
+        session.redirectUri = redirectUri;
+
+        // Then build query using redirectUri
         const query = new URLSearchParams({
             response_type: 'code',
             client_id: clientId,
@@ -76,7 +124,6 @@ class PluginUiServer extends HomebridgePluginUiServer {
         const authUrl = `${OAUTH_AUTHORIZE_URL}?${query.toString()}`;
         this.log.debug("Constructed Auth URL: ", authUrl);
 
-        this.sessions.set(sessionId, session);
         session.timeout = setTimeout(() => this.failSession(sessionId, 'Timed out waiting for Blink OAuth callback.'), SESSION_TTL_MS);
 
         return { sessionId, authUrl, hardwareId };
@@ -119,14 +166,35 @@ class PluginUiServer extends HomebridgePluginUiServer {
         return crypto.createHash('sha256').update(verifier).digest('base64url');
     }
 
-    async startCallbackServer(session, port) {
+    async startCallbackServer(session, requestedPort) {
+        const host = '127.0.0.1';
+        let port = Number(requestedPort || 52888);
+
+        try {
+            port = await this.findFreePort(port, host);
+        } catch (err) {
+            this.log.error(`Unable to find free port for OAuth callback server: ${err.message}`);
+            throw err;
+        }
+
         const server = http.createServer((req, res) => this.handleCallbackRequest(session.id, req, res));
-        await new Promise((resolve, reject) => {
-            server.once('error', reject);
-            server.listen(port, '127.0.0.1', resolve);
-        });
+        try {
+            await new Promise((resolve, reject) => {
+            server.once('error', err => {
+                reject(err);
+            });
+            server.once('listening', () => {
+                resolve();
+            });
+            server.listen(port, host);
+            });
+        } catch (err) {
+            this.log.error(`Failed to start callback server on port ${port}: ${err.message}`);
+            throw err;
+        }
         session.server = server;
-        this.log.debug("Starting server on port %s", port);
+        session.callbackPort = port;
+        this.log.debug(`Callback server listening on ${host}:${port}`);
     }
 
     async handleCallbackRequest(sessionId, req, res) {
@@ -243,9 +311,4 @@ class PluginUiServer extends HomebridgePluginUiServer {
     }
 }
 
-function startPluginUiServer() {
-    return new PluginUiServer();
-}
-
-startPluginUiServer();
 module.exports = PluginUiServer;

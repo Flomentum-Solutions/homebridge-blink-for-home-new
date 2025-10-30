@@ -25,7 +25,7 @@ class HomebridgeBlink {
             this.config['logging'] === 'debug'
         )
 
-        this.server = new Server(this.log, this.config);
+        this.server = new Server(this.log);
         this.log.info(
             'Server logging link to Homebridge UI initialized.'
         )
@@ -99,6 +99,7 @@ class HomebridgeBlink {
 
             // TODO: add new device discovery & removal
             await this.poll()
+
         } catch (err) {
             this.log.error(err)
             this.log.error(
