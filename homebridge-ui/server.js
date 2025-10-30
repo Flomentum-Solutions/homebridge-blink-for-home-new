@@ -43,6 +43,7 @@ class PluginUiServer extends HomebridgePluginUiServer {
 
         this.loggerOutput = createLoggerOutputs(customLog);
         this.logLevel = 'error';
+        this.log.info('PluginUiServer constructor called with customLog:', !!customLog);
 
         const logFn = (...args) => this.loggerOutput.call(...args);
         logFn.error = (...args) => this.loggerOutput.error(...args);
@@ -61,8 +62,25 @@ class PluginUiServer extends HomebridgePluginUiServer {
 
         this.sessions = new Map();
 
-        this.onRequest('/oauth/start', this.handleOAuthStart.bind(this));
-        this.onRequest('/oauth/status', this.handleOAuthStatus.bind(this));
+        this.onRequest('/oauth/start', async (payload) => {
+            this.log.info('/oauth/start requested, payload:', JSON.stringify(payload));
+            try {
+                return await this.handleOAuthStart(payload);
+            } catch (err) {
+                this.log.error('/oauth/start handler error:', err);
+                throw err;
+            }
+        });
+        
+        this.onRequest('/oauth/status', async (payload) => {
+            this.log.info('/oauth/status requested, payload:', JSON.stringify(payload));
+            try {
+                return await this.handleOAuthStatus(payload);
+            } catch (err) {
+                this.log.error('/oauth/status handler error:', err);
+                throw err;
+            }
+        });
 
         this.ready();
     }
