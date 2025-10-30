@@ -21,6 +21,7 @@
     "files": [
         "src",
         "bin",
+        "homebridge-ui",
         "!**/*.test.js",
         "config.schema.json"
     ],
@@ -35,8 +36,9 @@
     "dependencies": {
         "@homebridge/camera-utils": "^2.1.0",
         "@homebridge/plugin-ui-utils": "^2.1.0",
+        "bottleneck": "^2.19.5",
         "commander": "^9.1.0",
-        "bottleneck": "^2.19.5"
+        "homebridge-ui": "^0.0.0"
     },
     "devDependencies": {
         "@jest/globals": "^29",
@@ -46,7 +48,7 @@
         "hap-nodejs": "^0.10.0",
         "homebridge": "^1.11.0",
         "homebridge-config-ui-x": "^5.4.1",
-        "jest": "^29"
+        "jest": "^29.7.0"
     },
     "scripts": {
         "lint": "eslint src/**.js --max-warnings=0",

@@ -1,6 +1,7 @@
 {
     "pluginAlias": "Blink",
     "pluginType": "platform",
+    "customUi": true,
     "singular": true,
     "schema": {
         "type": "object",

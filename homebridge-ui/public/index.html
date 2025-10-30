@@ -1,56 +1,48 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Blink OAuth Link</title>
-    <link rel="stylesheet" href="ui.css">
-</head>
-<body>
-    <main class="container">
-        <header>
-            <h1>Blink Account Link</h1>
-            <p class="subtitle">Complete the Blink OAuth flow to connect your account to Homebridge.</p>
-        </header>
-        <section class="status-panel">
-            <div class="status-label">Status:</div>
-            <div id="status" class="status-value">Loading…</div>
-        </section>
-        <section class="controls">
-            <button id="sign-in" class="btn primary">Sign in with Blink</button>
-            <button id="reset" class="btn" title="Remove stored tokens and start fresh">Reset link</button>
-        </section>
-        <section class="details">
-            <h2>Current OAuth details</h2>
-            <dl>
-                <div>
-                    <dt>Hardware ID</dt>
-                    <dd id="detail-hardware">—</dd>
-                </div>
-                <div>
-                    <dt>Access token expires</dt>
-                    <dd id="detail-expiry">—</dd>
-                </div>
-                <div>
-                    <dt>Blink account</dt>
-                    <dd id="detail-account">—</dd>
-                </div>
-                <div>
-                    <dt>Region</dt>
-                    <dd id="detail-region">—</dd>
-                </div>
-            </dl>
-        </section>
-        <section class="help">
-            <h2>How it works</h2>
-            <ol>
-                <li>Click <strong>Sign in with Blink</strong>. A browser tab opens to Blink’s login page.</li>
-                <li>Complete the Blink sign-in and MFA steps. When finished, you’ll see a success message.</li>
-                <li>Return to this screen; the status updates to <em>Signed in</em> once tokens are stored.</li>
-            </ol>
-            <p>If the flow stalls, press <strong>Reset link</strong> to clear stored tokens and try again.</p>
-        </section>
-    </main>
-    <script src="index.js"></script>
-</body>
-</html>
+<link rel="stylesheet" href="ui.css">
+
+<main class="container">
+    <header>
+        <h1>Blink Account Link</h1>
+        <p class="subtitle">Complete the Blink OAuth flow to connect your account to Homebridge.</p>
+    </header>
+    <section class="status-panel">
+        <div class="status-label">Status:</div>
+        <div id="status" class="status-value">Loading…</div>
+    </section>
+    <section class="controls">
+        <button id="sign-in" class="btn primary">Sign in with Blink</button>
+        <button id="reset" class="btn" title="Remove stored tokens and start fresh">Reset link</button>
+    </section>
+    <section class="details">
+        <h2>Current OAuth details</h2>
+        <dl>
+            <div>
+                <dt>Hardware ID</dt>
+                <dd id="detail-hardware">—</dd>
+            </div>
+            <div>
+                <dt>Access token expires</dt>
+                <dd id="detail-expiry">—</dd>
+            </div>
+            <div>
+                <dt>Blink account</dt>
+                <dd id="detail-account">—</dd>
+            </div>
+            <div>
+                <dt>Region</dt>
+                <dd id="detail-region">—</dd>
+            </div>
+        </dl>
+    </section>
+    <section class="help">
+        <h2>How it works</h2>
+        <ol>
+            <li>Click <strong>Sign in with Blink</strong>. A browser tab opens to Blink’s login page.</li>
+            <li>Complete the Blink sign-in and MFA steps. When finished, you’ll see a success message.</li>
+            <li>Return to this screen; the status updates to <em>Signed in</em> once tokens are stored.</li>
+        </ol>
+        <p>If the flow stalls, press <strong>Reset link</strong> to clear stored tokens and try again.</p>
+    </section>
+</main>
+
+<script src="index.js"></script>
