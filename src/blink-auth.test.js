@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { URLSearchParams } = require('url');
 
 const { setLogger } = require('./log');
 const { Blink } = require('./blink');
@@ -77,6 +78,16 @@ describe('Blink OAuth persistence', () => {
             .spyOn(BlinkAPI.prototype, 'post')
             .mockImplementation(async function (path, body) {
                 if (path === '/oauth/token') {
+                    expect(body).toBeInstanceOf(URLSearchParams);
+                    const payload = Object.fromEntries(body.entries());
+                    expect(payload).toMatchObject({
+                        grant_type: 'password',
+                        username: 'user@example.com',
+                        password: 'password1',
+                        client_id: 'A5BF5C52-56F3-4ADB-A7C2-A70619552084',
+                        unique_id: 'A5BF5C52-56F3-4ADB-A7C2-A70619552084',
+                        scope: 'client offline_access',
+                    });
                     return '<h1>Not Found</h1>';
                 }
                 if (path === '/api/v5/account/login') {
