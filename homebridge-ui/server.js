@@ -248,3 +248,4 @@ function startPluginUiServer() {
 }
 
 startPluginUiServer();
+module.exports = PluginUiServer;

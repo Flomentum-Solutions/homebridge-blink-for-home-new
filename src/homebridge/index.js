@@ -4,6 +4,7 @@ const hap = require('./hap')
 const Server = require(
   path.join(__dirname, '..', '..', 'homebridge-ui', 'server')
 );
+console.log('Server module:', Server);
 const BLINK_STATUS_EVENT_LOOP = 10 // internal poll interval
 
 class HomebridgeBlink {
