@@ -1,5 +1,6 @@
 /* eslint-disable require-jsdoc */
 const crypto = require('crypto');
+const { URLSearchParams } = require('url');
 const { limitedFetch } = require('./util/http');
 
 const { sleep } = require('./utils');
@@ -22,6 +23,9 @@ const DEFAULT_CLIENT_OPTIONS = {
     os: '18.7.1',
     locale: 'en_US',
     timeZone: 'America/New_York',
+    oauthScope: 'client offline_access',
+    oauthClientId: null,
+    oauthClientSecret: null,
 };
 
 /* eslint-disable */
@@ -326,11 +330,12 @@ class BlinkAPI {
         return await this._request('GET', path, null, maxTTL, autologin, httpErrorAsError);
     }
 
-    async post(path = '/', body = null, autologin = true, httpErrorAsError = true) {
-        return this._request('POST', path, body, null, autologin, httpErrorAsError);
+    async post(path = '/', body = null, autologin = true, httpErrorAsError = true, options = {}) {
+        return this._request('POST', path, body, null, autologin, httpErrorAsError, options);
     }
 
-    async _request(method = 'GET', path = '/', payload = null, maxTTL = null, autologin = true, httpErrorAsError = true) {
+    async _request(method = 'GET', path = '/', payload = null, maxTTL = null, autologin = true, httpErrorAsError = true,
+        options = {}) {
         // first invocation we refresh the API tokens
         if (autologin) await this.login();
         let targetPath = path.replace('{accountID}', this.accountID).replace('{clientID}', this.clientID);
@@ -366,12 +371,55 @@ class BlinkAPI {
             'accept-language': (client.locale || 'en_US').replace('_', '-') + ', en;q=0.9',
             'Accept': '*/*',
         };
-        if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+        const extraHeaders = Object.assign({}, options.headers || {});
+        const skipAuthHeader = Boolean(options.skipAuthHeader);
+        const preferContentType = options.contentType;
+        const rawBody = options.rawBody === true;
+        const formEncode = options.form === true;
+        const requestOptions = { method, headers: Object.assign(headers, extraHeaders) };
+        const hasContentType = () => Boolean(requestOptions.headers['Content-Type']);
+        const setContentType = value => {
+            if (!hasContentType()) requestOptions.headers['Content-Type'] = value;
+        };
+        if (!skipAuthHeader && this.token) requestOptions.headers['Authorization'] = `Bearer ${this.token}`;
 
-        const options = { method, headers };
-        if (payload) {
-            options.body = JSON.stringify(payload);
-            options.headers['Content-Type'] = 'application/json';
+        if (payload !== null && payload !== undefined) {
+            if (rawBody) {
+                requestOptions.body = payload;
+                if (preferContentType) setContentType(preferContentType);
+            }
+            else if (payload instanceof URLSearchParams) {
+                requestOptions.body = payload.toString();
+                setContentType(preferContentType || 'application/x-www-form-urlencoded; charset=UTF-8');
+            }
+            else if (formEncode) {
+                const params = payload instanceof URLSearchParams ? payload : new URLSearchParams();
+                if (!(payload instanceof URLSearchParams)) {
+                    for (const [key, value] of Object.entries(payload || {})) {
+                        if (value === undefined || value === null) continue;
+                        if (Array.isArray(value)) {
+                            value.forEach(entry => params.append(key, String(entry)));
+                        }
+                        else {
+                            params.append(key, String(value));
+                        }
+                    }
+                }
+                requestOptions.body = params.toString();
+                setContentType(preferContentType || 'application/x-www-form-urlencoded; charset=UTF-8');
+            }
+            else if (typeof payload === 'string') {
+                requestOptions.body = payload;
+                if (preferContentType) setContentType(preferContentType);
+            }
+            else if (Buffer.isBuffer(payload)) {
+                requestOptions.body = payload;
+                if (preferContentType) setContentType(preferContentType);
+            }
+            else {
+                requestOptions.body = JSON.stringify(payload);
+                setContentType(preferContentType || 'application/json');
+            }
         }
 
         // Build the base URL:
@@ -393,9 +441,9 @@ class BlinkAPI {
 
         const requestUrl = targetPath.startsWith('http') ? targetPath : `${urlPrefix}${targetPath}`;
         log.info(`${method} ${requestUrl} @${maxTTL}`);
-        log.debug(options);
+        log.debug(requestOptions);
 
-        const res = await limitedFetch(requestUrl, options).catch(async e => {
+        const res = await limitedFetch(requestUrl, requestOptions).catch(async e => {
             if (!/ECONNRESET|ETIMEDOUT|ESOCKETTIMEDOUT|disconnected/.test(e.message)) log.error(e);
             // TODO: handle network errors more gracefully
             if (autologin) return null;
@@ -404,7 +452,7 @@ class BlinkAPI {
 
         if (!res || res == {}) {
             await this.login(true); // force a login on network connection loss
-            return await this._request(method, path, payload, maxTTL, false);
+            return await this._request(method, path, payload, maxTTL, false, httpErrorAsError, options);
         }
 
         log.debug(res.status + ' ' + res.statusText);
@@ -426,7 +474,7 @@ class BlinkAPI {
             // if the API call resulted in 401 Unauthorized (token expired?), try logging in again.
             if (autologin) {
                 await this.login(true);
-                return this._request(method, path, payload, maxTTL, false, httpErrorAsError);
+                return this._request(method, path, payload, maxTTL, false, httpErrorAsError, options);
             }
             // fallback
             // TODO: handle error states more gracefully
@@ -443,13 +491,13 @@ class BlinkAPI {
             log.error(`RETRY: ${method} ${requestUrl} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
             this.token = null; // force a re-login if 5xx errors
             await sleep(1000);
-            return this._request(method, path, payload, maxTTL, false, httpErrorAsError);
+            return this._request(method, path, payload, maxTTL, false, httpErrorAsError, options);
         }
         else if (res.status === 429) {
             // TODO: how do we get out of infinite retry?
             log.error(`RETRY: ${method} ${requestUrl} (${res.headers.get('status') || res.status + ' ' + res.statusText})`);
             await sleep(500);
-            return this._request(method, path, payload, maxTTL, false, httpErrorAsError);
+            return this._request(method, path, payload, maxTTL, false, httpErrorAsError, options);
         }
         else if (res.status === 409) {
             if (httpErrorAsError) {
@@ -633,21 +681,28 @@ class BlinkAPI {
     async passwordGrant(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
         if (!this.auth?.email || !this.auth?.password) throw new Error('Email or Password is blank');
 
-        const data = {
-            grant_type: 'password',
-            username: this.auth.email,
-            password: this.auth.password,
-            scope: 'client',
-            client_id: this.auth.clientUUID,
-            client_name: client.name,
-            client_type: client.type,
-            device_identifier: client.device,
-            os_version: client.os,
-            app_version: client.appVersion,
-            notification_key: client.notificationKey || this.auth.notificationKey,
-            unique_id: this.auth.clientUUID,
+        const params = new URLSearchParams();
+        const add = (key, value) => {
+            if (value === undefined || value === null) return;
+            params.append(key, String(value));
         };
-        if (this.auth.pin) data.reauth = 'true';
+        const scope = client.oauthScope || 'client offline_access';
+        add('grant_type', 'password');
+        add('username', this.auth.email);
+        add('password', this.auth.password);
+        add('scope', scope);
+        add('client_id', client.oauthClientId || this.auth.clientUUID);
+        add('unique_id', this.auth.clientUUID);
+        add('client_name', client.name);
+        add('client_type', client.type);
+        add('device_identifier', client.device);
+        add('os_version', client.os);
+        add('app_version', client.appVersion);
+        add('notification_key', client.notificationKey || this.auth.notificationKey);
+        add('locale', client.locale);
+        add('time_zone', client.timeZone);
+        add('client_secret', client.oauthClientSecret);
+        if (this.auth.pin) add('reauth', 'true');
 
         const fallbackLogin = async reason => {
             log.debug('Blink OAuth token endpoint unavailable, using legacy login:', reason);
@@ -663,6 +718,7 @@ class BlinkAPI {
                 unique_id: this.auth.clientUUID,
             };
             if (client.locale) legacyPayload.locale = client.locale;
+            if (client.timeZone) legacyPayload.time_zone = client.timeZone;
             if (this.auth.pin) legacyPayload.pin = this.auth.pin;
             return await this.post('/api/v5/account/login', legacyPayload, false, httpErrorAsError);
         };
@@ -674,7 +730,7 @@ class BlinkAPI {
         };
 
         try {
-            const response = await this.post('/oauth/token', data, false, httpErrorAsError);
+            const response = await this.post('/oauth/token', params, false, httpErrorAsError, { skipAuthHeader: true });
             if (!httpErrorAsError && typeof response === 'string' && /not\s+found/i.test(response)) {
                 return await fallbackLogin('legacy 404 response body');
             }
@@ -690,13 +746,19 @@ class BlinkAPI {
     async refreshGrant(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
         if (!this.refreshToken) throw new Error('Missing refresh token');
 
-        const data = {
-            grant_type: 'refresh_token',
-            refresh_token: this.refreshToken,
-            client_id: this.auth.clientUUID,
+        const params = new URLSearchParams();
+        const add = (key, value) => {
+            if (value === undefined || value === null) return;
+            params.append(key, String(value));
         };
+        const scope = client.oauthScope || 'client offline_access';
+        add('grant_type', 'refresh_token');
+        add('refresh_token', this.refreshToken);
+        add('client_id', client.oauthClientId || this.auth.clientUUID);
+        add('scope', scope);
+        add('client_secret', client.oauthClientSecret);
 
-        return await this.post('/oauth/refresh', data, false, httpErrorAsError);
+        return await this.post('/oauth/refresh', params, false, httpErrorAsError, { skipAuthHeader: true });
     }
 
     /**
