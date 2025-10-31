@@ -318,7 +318,7 @@ class BlinkAPI {
             headers.Authorization = 'Bearer ' + this.token;
         }
         
-        const options = { method, headers };
+        options = { method, headers };
         if (payload) {
             options.body = JSON.stringify(payload);
             options.headers['Content-Type'] = 'application/json';
