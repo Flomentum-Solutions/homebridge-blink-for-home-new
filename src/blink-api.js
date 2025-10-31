@@ -15,7 +15,7 @@ const DEFAULT_HOST_PREFIX = 'rest-prod';
 const DEFAULT_URL = `${DEFAULT_HOST_PREFIX}.${BLINK_API_HOST}`;
 const BASE_URL = `https://${DEFAULT_URL}`;
 const OAUTH_BASE_URL = 'https://api.oauth.blink.com';
-const REFRESH_ENDPOINT = `${OAUTH_BASE_URL}/oauth/refresh`;
+const REFRESH_ENDPOINT = `${OAUTH_BASE_URL}/oauth/token`;
 const CACHE = new Map();
 const OAUTH_ORIGIN = 'https://api.oauth.blink.com';
 
