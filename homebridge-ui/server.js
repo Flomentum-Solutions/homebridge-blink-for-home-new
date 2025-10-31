@@ -297,6 +297,89 @@ class PluginUiServer extends HomebridgePluginUiServer {
         return crypto.createHash('sha256').update(verifier).digest('base64url');
     }
 
+    // Helper: rewrite Blink HTML to relay all OAuth links/forms through our local server.
+    rewriteBlinkHtml(html, localBase) {
+        try {
+            // Absolute OAuth URLs -> relay
+            html = html.replace(/https:\/\/api\.oauth\.blink\.com\/oauth\/v2\//g, `${localBase}/blink/relay/oauth/v2/`);
+            // Root-relative OAuth paths -> relay
+            html = html.replace(/(action|href)="\/oauth\/v2\//g, `$1="${localBase}/blink/relay/oauth/v2/`);
+            return html;
+        } catch (e) {
+            this.log.debug('rewriteBlinkHtml error (non-fatal):', e?.message);
+            return html;
+        }
+    }
+
+    // Relay handler: Proxies OAuth requests and rewrites redirects and HTML so the browser never needs Blink cookies.
+    async handleBlinkRelay(session, req, res) {
+        try {
+            const localBase = `${this.normalizeProtocol('http:')}//127.0.0.1:${session.callbackPort}`;
+            const originalUrl = new URL(req.url, localBase);
+            // Map /blink/relay/<path> -> https://api.oauth.blink.com/<path>
+            const relayPath = originalUrl.pathname.replace(/^\/blink\/relay\//, '');
+            const targetUrl = `https://api.oauth.blink.com/${relayPath}${originalUrl.search || ''}`;
+
+            // Collect request body (for POSTs)
+            let body = undefined;
+            if (req.method !== 'GET' && req.method !== 'HEAD') {
+                body = await new Promise((resolve) => {
+                    const chunks = [];
+                    req.on('data', (c) => chunks.push(c));
+                    req.on('end', () => resolve(Buffer.concat(chunks)));
+                    req.on('error', () => resolve(undefined));
+                });
+            }
+
+            const headers = {
+                'User-Agent': 'Blink/49.2 (iPhone; iOS 26.1; Scale/3.00)',
+                'Accept': req.headers['accept'] || '*/*',
+                'Accept-Language': req.headers['accept-language'] || 'en-US,en;q=0.9',
+                'Cookie': (session.bootstrapCookies || []).join('; '),
+                'Origin': 'https://api.oauth.blink.com',
+                'Referer': 'https://api.oauth.blink.com/',
+            };
+            const ct = req.headers['content-type'];
+            if (ct) headers['Content-Type'] = ct;
+
+            const blinkRes = await fetch(targetUrl, {
+                method: req.method,
+                headers,
+                body,
+                redirect: 'manual',
+            });
+
+            // Handle redirects by rewriting Location to stay on relay/callback
+            const status = blinkRes.status;
+            const outHeaders = {};
+            if (status >= 300 && status < 400) {
+                const loc = blinkRes.headers.get('location') || '';
+                let rewritten = loc.replace(/^https:\/\/api\.oauth\.blink\.com\/oauth\/v2\//, `${localBase}/blink/relay/oauth/v2/`);
+                rewritten = rewritten.replace(/^\/oauth\/v2\//, `${localBase}/blink/relay/oauth/v2/`);
+                // Allow redirect to our local callback untouched
+                outHeaders['Location'] = rewritten;
+                res.writeHead(status, outHeaders);
+                res.end();
+                return;
+            }
+
+            const contentType = blinkRes.headers.get('content-type') || '';
+            let text = await blinkRes.text();
+            if (contentType.includes('text/html')) {
+                text = this.rewriteBlinkHtml(text, localBase);
+                res.writeHead(status, { 'Content-Type': 'text/html' });
+                res.end(text);
+            } else {
+                res.writeHead(status, { 'Content-Type': contentType || 'application/octet-stream' });
+                res.end(text);
+            }
+        } catch (err) {
+            this.log.error('Error in handleBlinkRelay:', err);
+            res.writeHead(500);
+            res.end('Relay error');
+        }
+    }
+
     async handleSigninProxy(session, req, res) {
         try {
             const signinParams = new URLSearchParams({
@@ -326,9 +409,16 @@ class PluginUiServer extends HomebridgePluginUiServer {
             },
             });
 
-            const body = await blinkRes.text();
-            res.writeHead(blinkRes.status, { 'Content-Type': 'text/html' });
-            res.end(body);
+            let body = await blinkRes.text();
+            const localBase = `${this.normalizeProtocol('http:')}//127.0.0.1:${session.callbackPort}`;
+            if ((blinkRes.headers.get('content-type') || '').includes('text/html')) {
+                body = this.rewriteBlinkHtml(body, localBase);
+                res.writeHead(blinkRes.status, { 'Content-Type': 'text/html' });
+                res.end(body);
+            } else {
+                res.writeHead(blinkRes.status, { 'Content-Type': blinkRes.headers.get('content-type') || 'application/octet-stream' });
+                res.end(body);
+            }
         } catch (err) {
             this.log.error('Error in handleSigninProxy:', err);
             res.writeHead(500);
@@ -350,7 +440,9 @@ class PluginUiServer extends HomebridgePluginUiServer {
         }
 
         const server = http.createServer((req, res) => {
-            if (req.url.startsWith('/blink/proxy-signin')) {
+            if (req.url.startsWith('/blink/relay/')) {
+                this.handleBlinkRelay(session, req, res);
+            } else if (req.url.startsWith('/blink/proxy-signin')) {
                 this.handleSigninProxy(session, req, res);
             } else {
                 this.handleCallbackRequest(session.id, req, res);
