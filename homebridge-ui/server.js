@@ -168,26 +168,32 @@ class PluginUiServer extends HomebridgePluginUiServer {
         const actualPort = session.callbackPort;
         const redirectUri = `${protocol}//${host}:${actualPort}${CALLBACK_PATH}`;
         session.redirectUri = redirectUri;
+        this.log.debug(`Using redirect URI: ${redirectUri}`);
 
-        // Then build query using redirectUri
         const query = new URLSearchParams({
+            // Standard OAuth / PKCE
             response_type: 'code',
-            client_id: clientId,
+            client_id: clientId,              // 'ios'
             redirect_uri: redirectUri,
             scope,
             state,
             code_challenge: codeChallenge,
             code_challenge_method: 'S256',
-            hardware_id: hardwareId,
-            app_brand: 'blink',
-            app_version: '49.2',
-            device_brand: 'Apple',
-            device_model: 'iPhone18,1',
-            device_os_version: '26.1',
+
+            // Blink expects these EXACT hyphen-cased keys on /signin:
+            'app-brand': 'blink',
+            'app-version': '49.2',
+            'device-brand': 'Apple',
+            'device-model': 'iPhone18,1',
+            'device-os-version': '26.1',
+
+            // Optional but seen in oauth-args; safe defaults:
+            'dark-mode': 'default',
+            'entry_source': 'default',
+            language: 'en'
         });
 
         const authUrl = `${OAUTH_SIGNIN_URL}?${query.toString()}`;
-
         this.log.info("Constructed Auth URL: ", authUrl);
 
         session.timeout = setTimeout(() => this.failSession(sessionId, 'Timed out waiting for Blink OAuth callback.'), SESSION_TTL_MS);
