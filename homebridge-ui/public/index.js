@@ -28,6 +28,7 @@
     const scopeEl = document.getElementById('detail-scope');
     const typeEl = document.getElementById('detail-type');
     const sessionEl = document.getElementById('detail-session');
+    const oauthClientEl = document.getElementById('detail-oauth-client');
     const headersEl = document.getElementById('detail-headers');
     const saveButton = document.getElementById('save-tokens');
     const refreshButton = document.getElementById('refresh-tokens');
@@ -64,6 +65,7 @@
         regionEl.textContent = state.config.region || '—';
         scopeEl.textContent = state.config.tokenScope || '—';
         typeEl.textContent = state.config.tokenType || '—';
+        oauthClientEl.textContent = state.config.oauthClientId || '—';
         sessionEl.textContent = state.config.sessionId || '—';
         headersEl.textContent = formatHeaders(state.config.tokenHeaders);
     }
@@ -122,6 +124,7 @@
             tokenScope: strOrEmpty(tokens.scope ?? state.config.tokenScope ?? ''),
             tokenType: strOrEmpty(tokens.token_type ?? state.config.tokenType ?? ''),
             sessionId: strOrEmpty(tokens.session_id ?? state.config.sessionId ?? ''),
+            oauthClientId: strOrEmpty(tokens.oauth_client_id ?? state.config.oauthClientId ?? ''),
             tokenHeaders: tokens.headers
                 ? { ...tokens.headers }
                 : (state.config.tokenHeaders ?? null),
@@ -138,6 +141,7 @@
                 refreshToken: form.refreshToken,
                 hardwareId: form.hardwareId,
                 scope: state.config.tokenScope,
+                oauthClientId: state.config.oauthClientId,
                 tokenHeaders: state.config.tokenHeaders,
                 tokenType: state.config.tokenType,
                 sessionId: state.config.sessionId,
@@ -172,6 +176,7 @@
                 refreshToken,
                 hardwareId: form.hardwareId || state.config.hardwareId,
                 scope: state.config.tokenScope,
+                clientId: state.config.oauthClientId,
             });
             const tokens = response?.tokens || {};
             tokens.headers = response?.headers || tokens.headers;
@@ -201,6 +206,7 @@
                 sessionId: '',
                 tokenHeaders: null,
                 hardwareId: state.config.hardwareId || '',
+                oauthClientId: '',
             });
             toast.success('Blink tokens cleared.');
         } catch (err) {

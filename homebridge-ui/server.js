@@ -135,7 +135,8 @@ class PluginUiServer extends HomebridgePluginUiServer {
         const refreshToken = normalizeString(payload.refreshToken || payload.refresh_token);
         const expiresAt = payload.expires_at || payload.tokenExpiresAt || null;
         const hardwareId = normalizeString(payload.hardwareId || payload.hardware_id);
-        const scope = normalizeString(payload.scope) || DEFAULT_SCOPE;
+        const scope = normalizeString(payload.scope);
+        const oauthClientId = normalizeString(payload.oauthClientId || payload.oauth_client_id) || DEFAULT_CLIENT_ID;
 
         return {
             status: 'ok',
@@ -147,10 +148,11 @@ class PluginUiServer extends HomebridgePluginUiServer {
                 client_id: toNumber(payload.clientId || payload.client_id),
                 region: normalizeString(payload.region) || null,
                 hardware_id: hardwareId || null,
-                scope,
+                scope: scope || null,
                 token_type: normalizeString(payload.tokenType || payload.token_type) || 'Bearer',
                 session_id: normalizeString(payload.sessionId || payload.session_id) || null,
                 headers: payload.tokenHeaders || payload.headers || null,
+                oauth_client_id: oauthClientId,
             },
         };
     }
@@ -162,60 +164,94 @@ class PluginUiServer extends HomebridgePluginUiServer {
         }
 
         const hardwareId = normalizeString(payload.hardwareId || payload.hardware_id);
-        const clientId = normalizeString(payload.clientId || payload.client_id) || DEFAULT_CLIENT_ID;
-        const clientSecret = normalizeString(payload.clientSecret || payload.client_secret) || DEFAULT_CLIENT_SECRET;
-        const scope = normalizeString(payload.scope) || DEFAULT_SCOPE;
+        const scope = normalizeString(payload.scope);
+        const requestedClientId = normalizeString(payload.clientId || payload.client_id);
+        const requestedClientSecret = normalizeString(payload.clientSecret || payload.client_secret);
 
-        const params = new URLSearchParams();
-        params.append('grant_type', 'refresh_token');
-        params.append('refresh_token', refreshToken);
-        params.append('client_id', clientId);
-        params.append('client_secret', clientSecret);
-        params.append('scope', scope);
-        if (hardwareId) {
-            params.append('hardware_id', hardwareId);
-        }
-
-        const response = await fetch(REFRESH_ENDPOINT, {
-            method: 'POST',
-            headers: {
-                ...IOS_HEADERS,
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            },
-            body: params,
-        });
-
-        const rawBody = await response.json().catch(() => ({}));
-        if (!response.ok) {
-            const reason = rawBody?.error_description || rawBody?.error || response.statusText;
-            throw new Error(reason || 'Blink token refresh failed.');
-        }
-
-        const headers = collectHeaders(response);
-        const expiresIn = Number(rawBody?.expires_in || headers['expires-in'] || 0);
-        const expiresAt = rawBody?.expires_at
-            ? Number(rawBody.expires_at)
-            : (expiresIn > 0 ? Date.now() + expiresIn * 1000 : null);
-
-        const tokens = mergeHeaderFields({
-            access_token: rawBody?.access_token || null,
-            refresh_token: rawBody?.refresh_token || refreshToken || null,
-            expires_at: expiresAt,
-            account_id: toNumber(rawBody?.account_id),
-            client_id: toNumber(rawBody?.client_id),
-            region: rawBody?.region || null,
-            scope: rawBody?.scope || scope,
-            token_type: rawBody?.token_type || headers['token-type'] || 'Bearer',
-            session_id: rawBody?.session_id || headers['session-id'] || null,
-            hardware_id: rawBody?.hardware_id || hardwareId || headers['hardware-id'] || null,
-        }, headers);
-
-        return {
-            status: 'ok',
-            tokens,
-            headers,
-            raw: rawBody,
+        const attempts = [];
+        const addAttempt = (clientId, clientSecret, label) => {
+            if (!clientId) return;
+            const key = `${clientId}::${clientSecret || ''}`;
+            if (attempts.some(entry => entry.key === key)) return;
+            attempts.push({ clientId, clientSecret, label, key });
         };
+
+        const resolveSecret = (clientId, secret) => {
+            if (secret) return secret;
+            if (clientId === DEFAULT_CLIENT_ID) return DEFAULT_CLIENT_SECRET;
+            return secret || null;
+        };
+
+        if (requestedClientId) {
+            addAttempt(requestedClientId, resolveSecret(requestedClientId, requestedClientSecret), 'requested-client');
+        } else {
+            addAttempt(DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET, 'default-client');
+        }
+
+        let lastError = null;
+        for (const attempt of attempts) {
+            const params = new URLSearchParams();
+            params.append('grant_type', 'refresh_token');
+            params.append('refresh_token', refreshToken);
+            params.append('client_id', attempt.clientId);
+            const effectiveSecret = resolveSecret(attempt.clientId, attempt.clientSecret);
+            if (effectiveSecret) {
+                params.append('client_secret', effectiveSecret);
+            }
+            if (scope || DEFAULT_SCOPE) {
+                params.append('scope', scope || DEFAULT_SCOPE);
+            }
+            if (hardwareId) {
+                params.append('hardware_id', hardwareId);
+            }
+
+            const response = await fetch(REFRESH_ENDPOINT, {
+                method: 'POST',
+                headers: {
+                    ...IOS_HEADERS,
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                },
+                body: params,
+            });
+
+            const rawBody = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const reason = rawBody?.error_description || rawBody?.error || response.statusText;
+                lastError = new Error(reason || 'Blink token refresh failed.');
+                this.log.debug(`Blink token refresh attempt ${attempt.label || attempt.clientId} failed: ${lastError.message}`);
+                continue;
+            }
+
+            const headers = collectHeaders(response);
+            const expiresIn = Number(rawBody?.expires_in || headers['expires-in'] || 0);
+            const expiresAt = rawBody?.expires_at
+                ? Number(rawBody.expires_at)
+                : (expiresIn > 0 ? Date.now() + expiresIn * 1000 : null);
+
+            const tokens = mergeHeaderFields({
+                access_token: rawBody?.access_token || null,
+                refresh_token: rawBody?.refresh_token || refreshToken || null,
+                expires_at: expiresAt,
+                account_id: toNumber(rawBody?.account_id),
+                client_id: toNumber(rawBody?.client_id),
+                region: rawBody?.region || null,
+                scope: rawBody?.scope || scope,
+                token_type: rawBody?.token_type || headers['token-type'] || 'Bearer',
+                session_id: rawBody?.session_id || headers['session-id'] || null,
+                hardware_id: rawBody?.hardware_id || hardwareId || headers['hardware-id'] || null,
+            }, headers);
+
+            tokens.oauth_client_id = attempt.clientId;
+
+            return {
+                status: 'ok',
+                tokens,
+                headers,
+                raw: rawBody,
+            };
+        }
+
+        throw lastError || new Error('Blink token refresh failed.');
     }
 }
 

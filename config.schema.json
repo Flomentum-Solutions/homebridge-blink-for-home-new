@@ -63,6 +63,11 @@
                 "type": "string",
                 "readOnly": true
             },
+            "oauthClientId": {
+                "title": "OAuth Client ID",
+                "type": "string",
+                "readOnly": true
+            },
             "tokenHeaders": {
                 "title": "Captured Token Headers",
                 "type": "object",
@@ -192,7 +197,8 @@
                 "region",
                 "tokenScope",
                 "tokenType",
-                "sessionId"
+                "sessionId",
+                "oauthClientId"
             ]
         },
         {

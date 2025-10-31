@@ -169,6 +169,7 @@ class HomebridgeBlink {
                 token_type: this.config.tokenType,
                 session_id: this.config.sessionId,
                 hardware_id: this.config.hardwareId,
+                oauth_client_id: this.config.oauthClientId,
                 headers: this.config.tokenHeaders,
             })
         }

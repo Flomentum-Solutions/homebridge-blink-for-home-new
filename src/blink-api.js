@@ -300,6 +300,7 @@ class BlinkAPI {
             token_type: this.tokenType,
             session_id: this.sessionID,
             hardware_id: this.auth.hardwareId,
+            oauth_client_id: this._clientOptions?.oauthClientId || DEFAULT_CLIENT_OPTIONS.oauthClientId,
             headers: this.tokenHeaders ? Object.assign({}, this.tokenHeaders) : null,
         };
     }
@@ -316,6 +317,15 @@ class BlinkAPI {
         this.tokenType = bundle.token_type || this.tokenType;
         this.sessionID = bundle.session_id || this.sessionID;
         if (bundle.hardware_id) this.auth.hardwareId = bundle.hardware_id;
+        if (bundle.oauth_client_id) {
+            const nextOptions = Object.assign({}, this._clientOptions, {
+                oauthClientId: bundle.oauth_client_id,
+            });
+            if (!nextOptions.oauthClientSecret) {
+                nextOptions.oauthClientSecret = DEFAULT_CLIENT_OPTIONS.oauthClientSecret;
+            }
+            this._clientOptions = nextOptions;
+        }
         const normalizedHeaders = normalizeHeaderMap(bundle.headers || bundle.token_headers);
         if (normalizedHeaders) {
             this.tokenHeaders = normalizedHeaders;
@@ -400,6 +410,7 @@ class BlinkAPI {
         normalized.token_type = this.tokenType;
         normalized.session_id = this.sessionID;
         normalized.headers = this.tokenHeaders;
+        normalized.oauth_client_id = this._clientOptions?.oauthClientId;
 
         this._session = normalized;
         this.init(this.token, this.accountID, this.clientID, this.region);
@@ -805,12 +816,24 @@ class BlinkAPI {
             params.append(key, String(value));
         };
         const scope = client.oauthScope || 'client offline_access';
+        const hardwareId = client.hardwareId || this.auth.hardwareId || this.auth.clientUUID;
+        const clientId = client.oauthClientId || this.auth.clientUUID;
         add('grant_type', 'refresh_token');
         add('refresh_token', this.refreshToken);
-        add('client_id', client.oauthClientId || this.auth.clientUUID);
+        add('client_id', clientId);
         add('scope', scope);
         add('client_secret', client.oauthClientSecret);
-        add('hardware_id', client.hardwareId || this.auth.hardwareId || this.auth.clientUUID);
+        add('hardware_id', hardwareId);
+        add('unique_id', this.auth.clientUUID);
+        add('client_name', client.name);
+        add('client_type', client.type);
+        add('device_identifier', client.device);
+        add('app_name', client.appName);
+        add('app_version', client.appVersion);
+        add('os_version', client.os);
+        add('locale', client.locale);
+        add('time_zone', client.timeZone);
+        add('notification_key', client.notificationKey || this.auth.notificationKey);
 
         const response = await this.post(REFRESH_ENDPOINT, params, false, httpErrorAsError, {
             skipAuthHeader: true,
