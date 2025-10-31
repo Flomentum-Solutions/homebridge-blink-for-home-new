@@ -321,15 +321,9 @@ BlinkCamera.DISABLED_BYTES = DISABLED_BYTES;
 BlinkCamera.UNSUPPORTED_BYTES = UNSUPPORTED_BYTES;
 
 class Blink {
-    constructor(
-        clientUUID,
-        auth,
-        statusPoll = STATUS_POLL,
-        motionPoll = MOTION_POLL,
-        snapshotRate = THUMBNAIL_TTL,
-        tokenCachePath = null
-    ) {
-        this.blinkAPI = new BlinkAPI(clientUUID, auth);
+    constructor(clientUUID, auth, statusPoll = STATUS_POLL, motionPoll = MOTION_POLL, snapshotRate = THUMBNAIL_TTL, api) {
+
+        this.blinkAPI = new BlinkAPI(clientUUID, auth, api);
         this.statusPoll = statusPoll ?? STATUS_POLL;
         this.motionPoll = motionPoll ?? MOTION_POLL;
         this.snapshotRate = snapshotRate ?? THUMBNAIL_TTL;
@@ -603,56 +597,54 @@ class Blink {
 
         this.nextLoginAttempt = Date.now() + 5 * 1000;
 
-        const login = await this.blinkAPI.login(false, null, false);
-        await this._persistOAuthBundle();
+        let login = await this.blinkAPI.login(true, null, false, this.api);
+        // convenience function to avoid the business logic layer from having to handle this check constantly
+//        if (/Client already deleted/i.test(login?.message)) {
+//            delete this.blinkAPI.auth.pin;
+//            login = await this.blinkAPI.login(true, null, false);
+//        }
+//
+//        if (login.account?.account_verification_required) {
+//            log.error('Account is not verified; login with the app first.');
+//            throw new Error('Account is not verified; login with the app first.');
+//        }
+//        if (login.force_password_reset) {
+//            log.error('Account password needs reset; login with the app first.');
+//            throw new Error('Account password needs reset; login with the app first.');
+//        }
+//        if (login.lockout_time_remaining > 0) {
+//            this.nextLoginAttempt = Date.now() + login.lockout_time_remaining * 1000;
+//
+//            log.error(`Account locked. Retry in ${login.lockout_time_remaining}`);
+//            throw new Error(`Account locked. Retry in ${login.lockout_time_remaining}`);
+//        }
+//        if (login.account?.client_verification_required) {
+//            if (this.blinkAPI.auth?.pin) {
+//                const pinVerify = await this.blinkAPI.verifyPIN(this.blinkAPI.auth?.pin, false);
+//                Object.assign(login, pinVerify);
+//
+//                if (pinVerify.require_new_pin || !pinVerify.valid) {
+//                    const pinResend = await this.blinkAPI.resendPIN(false);
+//
+//                    log.error(`PIN verification failed: ${pinVerify.message}; resending (${pinResend.message})`);
+//                    throw new Error(`PIN verification failed: ${pinVerify.message}; resending (${pinResend.message})`);
+//                }
+//            }
+//            else {
+//                login.pinResend = await this.blinkAPI.resendPIN(false);
+//            }
+//
+//            if (!login.valid) {
+//                const twofa = login.verification?.email.required ? 'email' : login.verification?.phone?.channel;
+//                log.error(`2FA required. PIN sent to ${twofa}`);
+//                throw new Error(`2FA required. PIN sent to ${twofa}`);
+//            }
+//        }
+        if (login.tsv_state) {
+            log.error(`2FA required. PIN sent to ${login.phone}`);
+            throw new Error(`2FA required. PIN sent to ${login.phone}`);
+        }
         return login;
-    }
-
-    get oauthCachePath() {
-        return this._oauthCachePath;
-    }
-
-    set oauthCachePath(val) {
-        this._oauthCachePath = val || null;
-    }
-
-    async _loadOAuthBundle() {
-        if (this._oauthBundleLoaded || !this.oauthCachePath) return;
-        this._oauthBundleLoaded = true;
-        try {
-            const raw = await fs.promises.readFile(this.oauthCachePath, 'utf8');
-            const bundle = JSON.parse(raw);
-            if (bundle && typeof bundle === 'object') {
-                this.blinkAPI.useOAuthBundle?.(bundle);
-            }
-        } catch (err) {
-            if (err?.code !== 'ENOENT') {
-                log.debug('Failed to load Blink OAuth cache:', err?.message || err);
-            }
-        }
-    }
-
-    async _persistOAuthBundle() {
-        if (!this.oauthCachePath) return;
-        const bundle = this.blinkAPI.getOAuthBundle?.();
-        if (!bundle || typeof bundle !== 'object') return;
-        const dir = path.dirname(this.oauthCachePath);
-        try {
-            await fs.promises.mkdir(dir, { recursive: true });
-        } catch (err) {
-            if (err?.code !== 'EEXIST') {
-                log.debug('Failed to ensure Blink OAuth cache directory:', err?.message || err);
-            }
-        }
-        try {
-            await fs.promises.writeFile(
-                this.oauthCachePath,
-                JSON.stringify(bundle, null, 2),
-                'utf8'
-            );
-        } catch (err) {
-            log.error('Unable to persist Blink OAuth cache:', err?.message || err);
-        }
     }
 
     async logout() {

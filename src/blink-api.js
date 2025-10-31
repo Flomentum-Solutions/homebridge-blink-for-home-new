@@ -9,6 +9,10 @@ const { log } = require('./log');
 const { stringify } = require('./stringify');
 // const stringify = JSON.stringify;
 // crypto.randomBytes(16).toString("hex").toUpperCase().replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5")
+
+const path = require('path');
+const fs = require('fs');
+
 const DEFAULT_BLINK_CLIENT_UUID = '1EAF7C88-2AAB-BC51-038D-DB96D6EEE22F';
 const BLINK_API_HOST = 'immedia-semi.com';
 const DEFAULT_HOST_PREFIX = 'rest-prod';
@@ -17,23 +21,7 @@ const BASE_URL = `https://${DEFAULT_URL}`;
 const OAUTH_BASE_URL = 'https://api.oauth.blink.com';
 const REFRESH_ENDPOINT = `${OAUTH_BASE_URL}/oauth/token`;
 const CACHE = new Map();
-const OAUTH_ORIGIN = 'https://api.oauth.blink.com';
-
-function normalizeHeaderMap(source) {
-    if (!source || typeof source !== 'object') return null;
-    const entries = Object.entries(source);
-    if (!entries.length) return null;
-    return entries.reduce((acc, [key, value]) => {
-        if (value === undefined || value === null || value === '') return acc;
-        acc[String(key).toLowerCase()] = String(value);
-        return acc;
-    }, {});
-}
-
-const buildRestBaseUrl = (region = 'prod') => {
-    const shard = region && region !== 'prod' ? `rest-${region}` : DEFAULT_HOST_PREFIX;
-    return `https://${shard}.${BLINK_API_HOST}`;
-};
+const AUTH_FILE = 'blink-auth.json';
 
 const DEFAULT_CLIENT_OPTIONS = {
     notificationKey: null,
@@ -201,106 +189,17 @@ const DEFAULT_CLIENT_OPTIONS = {
 /* eslint-enable */
 
 class BlinkAPI {
-    constructor(clientUUID, auth = {}) {
-        const {
-            path: authPath = '~/.blink',
-            section: authSection = 'default',
-            ...authOverrides
-        } = auth || {};
-        const ini = IniFile.read(process.env.BLINK || authPath, process.env.BLINK_SECTION || authSection);
-
-        const resolvedClientUUID = authOverrides.clientUUID
-            || clientUUID
-            || process.env.BLINK_CLIENT_UUID
-            || ini.client
-            || DEFAULT_BLINK_CLIENT_UUID;
-
-        const resolvedHardwareId = authOverrides.hardwareId
-            || process.env.BLINK_HARDWARE_ID
-            || ini.hardware_id
-            || resolvedClientUUID;
-
-        const resolvedNotificationKey = authOverrides.notificationKey
-            || process.env.BLINK_NOTIFICATION_KEY
-            || ini.notification
-            || crypto.randomBytes(32).toString('hex');
-
-        const resolvedEmail = authOverrides.email || process.env.BLINK_EMAIL || ini.email;
-        const resolvedPassword = authOverrides.password || process.env.BLINK_PASSWORD || ini.password;
-        const resolvedPin = authOverrides.pin || process.env.BLINK_PIN || ini.pin;
-        const resolvedOtp = authOverrides.otp
-            || authOverrides.twoFactorCode
-            || authOverrides.twoFactorToken
-            || process.env.BLINK_OTP
-            || process.env.BLINK_2FA
-            || ini.otp;
-
-        this.auth = {
-            clientUUID: resolvedClientUUID,
-            hardwareId: resolvedHardwareId,
-            notificationKey: resolvedNotificationKey,
-            email: resolvedEmail,
-            password: resolvedPassword,
-            pin: resolvedPin,
-            otp: resolvedOtp,
-            twoFactorToken: resolvedOtp,
-        };
-        const clientOverrides = Object.entries({
-            notificationKey: this.auth.notificationKey,
-            appName: authOverrides.appName || process.env.BLINK_APP_NAME || ini.app_name,
-            device: authOverrides.device || process.env.BLINK_DEVICE || ini.device || ini.device_identifier,
-            type: authOverrides.type || process.env.BLINK_CLIENT_TYPE || ini.client_type,
-            name: authOverrides.name || process.env.BLINK_CLIENT_NAME || ini.client_name,
-            appVersion: authOverrides.appVersion || process.env.BLINK_APP_VERSION || ini.app_version,
-            os: authOverrides.os || process.env.BLINK_OS_VERSION || ini.os_version,
-            userAgent: authOverrides.userAgent || process.env.BLINK_USER_AGENT || ini.user_agent,
-            locale: authOverrides.locale || process.env.BLINK_LOCALE || ini.locale,
-            timeZone: authOverrides.timeZone || process.env.BLINK_TIME_ZONE || ini.time_zone,
-            oauthScope: authOverrides.oauthScope || process.env.BLINK_OAUTH_SCOPE || ini.oauth_scope,
-            oauthClientId: authOverrides.oauthClientId || process.env.BLINK_OAUTH_CLIENT_ID || ini.oauth_client_id,
-            oauthClientSecret: authOverrides.oauthClientSecret || process.env.BLINK_OAUTH_CLIENT_SECRET || ini.oauth_client_secret,
-            hardwareId: this.auth.hardwareId,
-        }).reduce((acc, [key, value]) => {
-            if (value !== undefined && value !== null && value !== '') {
-                acc[key] = value;
-            }
-            return acc;
-        }, {});
-        this._clientOptions = Object.assign({}, DEFAULT_CLIENT_OPTIONS, clientOverrides);
-        this._session = null;
-        this.refreshToken = null;
-        this.tokenExpiresAt = 0;
-        this.scope = null;
-        this.tokenType = null;
-        this.sessionID = null;
-        this.tokenHeaders = null;
-
-        const initialAccessToken = authOverrides.accessToken
-            || authOverrides.token
-            || ini.access_token
-            || ini.token;
-        if (initialAccessToken) this.token = initialAccessToken;
-
-        const initialRefreshToken = authOverrides.refreshToken
-            || ini.refresh_token;
-        if (initialRefreshToken) this.refreshToken = initialRefreshToken;
-
-        const initialExpiresAt = authOverrides.expires_at
-            || authOverrides.expiresAt
-            || authOverrides.tokenExpiresAt
-            || ini.expires_at;
-        if (initialExpiresAt !== undefined && initialExpiresAt !== null) {
-            const parsed = Number(initialExpiresAt);
-            if (!Number.isNaN(parsed)) this.tokenExpiresAt = parsed;
-        }
-
-        if (authOverrides.scope) this.scope = authOverrides.scope;
-        if (authOverrides.token_type || authOverrides.tokenType) {
-            this.tokenType = authOverrides.token_type || authOverrides.tokenType;
-        }
-        if (authOverrides.session_id || authOverrides.sessionId) {
-            this.sessionID = authOverrides.session_id || authOverrides.sessionId;
-        }
+    constructor(clientUUID, auth = {path: '~/.blink', section: 'default'}, api) {
+        const ini = IniFile.read(process.env.BLINK || auth.path, process.env.BLINK_SECTION || auth.section);
+        this.auth = Object.assign({
+            email: process.env.BLINK_EMAIL || ini.email,
+            password: process.env.BLINK_PASSWORD || ini.password,
+            pin: process.env.BLINK_PIN || ini.pin,
+            clientUUID: clientUUID || process.env.BLINK_CLIENT_UUID || ini.client || DEFAULT_BLINK_CLIENT_UUID,
+            notificationKey: process.env.BLINK_NOTIFICATION_KEY || ini.notification ||
+                crypto.randomBytes(32).toString('hex'),
+        }, auth);
+        this.api = api;
     }
 
     set region(val) {
@@ -319,154 +218,12 @@ class BlinkAPI {
         return this._token;
     }
 
-    hasValidToken(bufferMs = 30000) {
-        if (!this.token) return false;
-        if (!this.tokenExpiresAt) return true;
-        return (Date.now() + bufferMs) < this.tokenExpiresAt;
+    set refresh_token(val) {
+        this._refresh_token = val;
     }
 
-    canRefresh() {
-        return Boolean(this.refreshToken);
-    }
-
-    needRefresh(bufferMs = 60000) {
-        if (!this.token) return true;
-        if (!this.tokenExpiresAt) return false;
-        return (Date.now() + bufferMs) >= this.tokenExpiresAt;
-    }
-
-    hasCredentials() {
-        return Boolean(this.auth?.email && this.auth?.password);
-    }
-
-    getOAuthBundle() {
-        if (!this.token) return null;
-        return {
-            access_token: this.token,
-            refresh_token: this.refreshToken,
-            expires_at: this.tokenExpiresAt || 0,
-            account_id: this.accountID,
-            client_id: this.clientID,
-            region: this.region,
-            scope: this.scope,
-            token_type: this.tokenType,
-            session_id: this.sessionID,
-            hardware_id: this.auth.hardwareId,
-            oauth_client_id: this._clientOptions?.oauthClientId || DEFAULT_CLIENT_OPTIONS.oauthClientId,
-            headers: this.tokenHeaders ? Object.assign({}, this.tokenHeaders) : null,
-        };
-    }
-
-    useOAuthBundle(bundle = {}) {
-        if (!bundle?.access_token) return null;
-        this.token = bundle.access_token;
-        this.refreshToken = bundle.refresh_token || this.refreshToken;
-        this.tokenExpiresAt = bundle.expires_at || 0;
-        this.accountID = bundle.account_id || this.accountID;
-        this.clientID = bundle.client_id || this.clientID;
-        this.region = bundle.region || this.region;
-        this.scope = bundle.scope || this.scope;
-        this.tokenType = bundle.token_type || this.tokenType;
-        this.sessionID = bundle.session_id || this.sessionID;
-        if (bundle.hardware_id) this.auth.hardwareId = bundle.hardware_id;
-        if (bundle.oauth_client_id) {
-            const nextOptions = Object.assign({}, this._clientOptions, {
-                oauthClientId: bundle.oauth_client_id,
-            });
-            if (!nextOptions.oauthClientSecret) {
-                nextOptions.oauthClientSecret = DEFAULT_CLIENT_OPTIONS.oauthClientSecret;
-            }
-            this._clientOptions = nextOptions;
-        }
-        const normalizedHeaders = normalizeHeaderMap(bundle.headers || bundle.token_headers);
-        if (normalizedHeaders) {
-            this.tokenHeaders = normalizedHeaders;
-            if (normalizedHeaders['hardware-id']) {
-                this.auth.hardwareId = normalizedHeaders['hardware-id'];
-            }
-        }
-        const account = Object.assign({}, this._session?.account, {
-            account_id: this.accountID,
-            client_id: this.clientID,
-            tier: this.region,
-            region: this.region,
-        });
-        this._session = Object.assign({}, this._session, {
-            account,
-            auth: Object.assign({}, this._session?.auth, { token: this.token }),
-            access_token: this.token,
-            refresh_token: this.refreshToken,
-            expires_at: this.tokenExpiresAt,
-            scope: this.scope,
-            token_type: this.tokenType,
-            session_id: this.sessionID,
-            headers: this.tokenHeaders,
-        });
-        return this._session;
-    }
-
-    _ingestSession(session = {}) {
-        if (!session) return this._session;
-        const normalized = Object.assign({}, this._session, session);
-        const accessToken = session.access_token || session.auth?.token;
-        if (!accessToken) {
-            this._session = normalized;
-            return normalized;
-        }
-
-        const refreshToken = session.refresh_token || session.auth?.refresh_token || this.refreshToken;
-        const expiresAt = session.expires_at || (session.expires_in
-            ? Date.now() + Number(session.expires_in) * 1000
-            : this.tokenExpiresAt || 0);
-        const scope = session.scope || session.auth?.scope || normalized.scope || this.scope;
-        const tokenType = session.token_type || session.auth?.token_type || normalized.token_type || this.tokenType;
-        const sessionId = session.session_id || normalized.session_id || this.sessionID;
-
-        const headerSource = session.headers || session.token_headers || normalized.headers;
-        const normalizedHeaders = normalizeHeaderMap(headerSource);
-        if (normalizedHeaders) {
-            this.tokenHeaders = normalizedHeaders;
-            if (normalizedHeaders['hardware-id']) {
-                this.auth.hardwareId = normalizedHeaders['hardware-id'];
-            }
-        }
-
-        this.token = accessToken;
-        this.refreshToken = refreshToken || this.refreshToken;
-        this.tokenExpiresAt = expiresAt || 0;
-        if (scope) this.scope = scope;
-        if (tokenType) this.tokenType = tokenType;
-        if (sessionId) this.sessionID = sessionId;
-
-        let account = {};
-        if (normalized.account) account = Object.assign(account, normalized.account);
-        if (session.account) account = Object.assign(account, session.account);
-        if (!account.account_id) account.account_id = session.account_id ?? this.accountID;
-        if (!account.client_id) account.client_id = session.client_id ?? this.clientID;
-        if (!account.tier) account.tier = session.region || account.region || this.region;
-        if (account.tier && !account.region) account.region = account.tier;
-        this.accountID = account.account_id || this.accountID;
-        this.clientID = account.client_id || this.clientID;
-        this.region = account.tier || account.region || this.region || 'prod';
-
-        normalized.account = account;
-        normalized.auth = Object.assign({}, session.auth, {
-            token: accessToken,
-            refresh_token: refreshToken,
-            expires_at: this.tokenExpiresAt,
-        });
-        normalized.access_token = accessToken;
-        normalized.refresh_token = refreshToken;
-        normalized.expires_at = this.tokenExpiresAt;
-        normalized.scope = this.scope;
-        normalized.token_type = this.tokenType;
-        normalized.session_id = this.sessionID;
-        normalized.headers = this.tokenHeaders;
-        normalized.oauth_client_id = this._clientOptions?.oauthClientId;
-
-        this._session = normalized;
-        this.init(this.token, this.accountID, this.clientID, this.region);
-        return normalized;
+    get refresh_token() {
+        return this._refresh_token;
     }
 
     set accountID(val) {
@@ -537,69 +294,38 @@ class BlinkAPI {
         const timeZone = client.timeZone || 'America/New_York';
         const userAgentSuffix = client.userAgent || 'CFNetwork/1490.0.4 Darwin/23.6.0';
         const headers = {
-            'User-Agent': `Blink/${appBuild} ${userAgentSuffix}`,
-            'app-build': appBuild,
-            'App-Name': client.appName || 'com.immediasemi.blink',
-            'App-Version': client.appVersion || DEFAULT_CLIENT_OPTIONS.appVersion,
-            'Device-Name': client.device || DEFAULT_CLIENT_OPTIONS.device,
-            'OS-Version': client.os || DEFAULT_CLIENT_OPTIONS.os,
-            'Locale': locale,
-            'x-blink-time-zone': timeZone,
-            'accept-language': locale.replace('_', '-') + ', en;q=0.9',
+            'Locale': 'en_US',
+            'x-blink-time-zone': 'America/New_York',
+            'accept-language': 'en-US',
             'Accept': '*/*',
         };
-        const extraHeaders = Object.assign({}, options.headers || {});
-        const skipAuthHeader = Boolean(options.skipAuthHeader);
-        const preferContentType = options.contentType;
-        const rawBody = options.rawBody === true;
-        const formEncode = options.form === true;
-        const includeHeaders = options.includeHeaders === true;
-        const requestOptions = { method, headers: Object.assign(headers, extraHeaders) };
-        const hasContentType = () => Boolean(requestOptions.headers['Content-Type']);
-        const setContentType = value => {
-            if (!hasContentType()) requestOptions.headers['Content-Type'] = value;
-        };
-        if (!skipAuthHeader && this.token) requestOptions.headers['Authorization'] = `Bearer ${this.token}`;
 
-        if (payload !== null && payload !== undefined) {
-            if (rawBody) {
-                requestOptions.body = payload;
-                if (preferContentType) setContentType(preferContentType);
-            }
-            else if (payload instanceof URLSearchParams) {
-                requestOptions.body = payload.toString();
-                setContentType(preferContentType || 'application/x-www-form-urlencoded; charset=UTF-8');
-            }
-            else if (formEncode) {
-                const params = payload instanceof URLSearchParams ? payload : new URLSearchParams();
-                if (!(payload instanceof URLSearchParams)) {
-                    for (const [key, value] of Object.entries(payload || {})) {
-                        if (value === undefined || value === null) continue;
-                        if (Array.isArray(value)) {
-                            value.forEach(entry => params.append(key, String(entry)));
-                        }
-                        else {
-                            params.append(key, String(value));
-                        }
-                    }
-                }
-                requestOptions.body = params.toString();
-                setContentType(preferContentType || 'application/x-www-form-urlencoded; charset=UTF-8');
-            }
-            else if (typeof payload === 'string') {
-                requestOptions.body = payload;
-                if (preferContentType) setContentType(preferContentType);
-            }
-            else if (Buffer.isBuffer(payload)) {
-                requestOptions.body = payload;
-                if (preferContentType) setContentType(preferContentType);
-            }
-            else {
-                requestOptions.body = JSON.stringify(payload);
-                setContentType(preferContentType || 'application/json');
-            }
+        // If we have no refresh token, but we do have a pin (2FA) then use that
+        // to get us a refresh token
+
+        if (path.includes('api.oauth.blink.com') &&
+            this.auth.pin &&
+            payload.refresh_token === undefined)
+        {
+            headers['2fa-code'] = this.auth.pin;
         }
 
+        // If we have a auth token use it, except when refreshing it
+
+        if (this.token &&
+            headers.refresh_token === undefined)
+        {
+            headers.Authorization = 'Bearer ' + this.token;
+        }
+        
+        const options = { method, headers };
+        if (payload) {
+            options.body = JSON.stringify(payload);
+            options.headers['Content-Type'] = 'application/json';
+        }
+
+        log.info(`${method} ${targetPath} @${maxTTL}`);
+        log.debug(options);
         // Build the base URL:
         //  - absolute URLs pass through
         //  - tier_info must always hit the prod host regardless of shard
@@ -807,193 +533,95 @@ class BlinkAPI {
      **/
 
     async login(force = false, client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
-        this._clientOptions = Object.assign({}, DEFAULT_CLIENT_OPTIONS, client || {});
-        if (!force && !this.needRefresh()) {
-            const session = this._session || this._ingestSession({
-                access_token: this.token,
-                refresh_token: this.refreshToken,
-                expires_at: this.tokenExpiresAt,
-                account: {
-                    account_id: this.accountID,
-                    client_id: this.clientID,
-                    tier: this.region,
-                },
-            });
-            return session;
-        }
+        if (!force && this.token) return;
+        
+        if (force) this.token = undefined;
+        
+        if (!this.auth?.email || !this.auth?.password) throw new Error('Email or Password is blank');
 
-        const hasToken = candidate => candidate && typeof candidate === 'object'
-            && (candidate.access_token || candidate.auth?.token);
-
-        let session = null;
-        let refreshError = null;
-        if (this.canRefresh()) {
-            try {
-                session = await this.refreshGrant(this._clientOptions, httpErrorAsError);
-                if (!hasToken(session)) {
-                    log.debug('Blink refresh grant returned no access token; treating as failed refresh');
-                    session = null;
-                }
-            } catch (err) {
-                refreshError = err;
-                log.debug('Blink refresh grant failed:', err?.message || err);
-                session = null;
-            }
-        }
-
-        const haveCredentials = this.hasCredentials();
-        if (!session && haveCredentials) {
-            try {
-                const oauthSession = await this.passwordGrant(this._clientOptions, httpErrorAsError);
-                if (hasToken(oauthSession)) {
-                    session = oauthSession;
-                } else if (oauthSession) {
-                    log.debug('Blink password grant returned unexpected payload; attempting legacy login');
-                }
-            } catch (err) {
-                log.debug('Blink password grant failed:', err?.message || err);
-            }
-
-            if (!session) {
-                try {
-                    const legacySession = await this.legacyAppLogin(this._clientOptions, httpErrorAsError);
-                    if (hasToken(legacySession)) {
-                        session = legacySession;
-                    } else if (legacySession) {
-                        log.debug('Blink legacy login returned unexpected payload; continuing without session');
-                    }
-                } catch (err) {
-                    log.debug('Blink legacy login failed:', err?.message || err);
-                }
-            }
-        }
-
-        if (!session) {
-            const errorMsg = haveCredentials
-                ? 'Blink authentication failed. Please re-authorize or verify your Blink credentials.'
-                : 'Blink access/refresh tokens are missing or expired. Please re-authorize in the Homebridge UI.';
-            const error = new Error(errorMsg);
-            if (refreshError) error.cause = refreshError;
-            throw error;
-        }
-
-        if (/unauthorized|invalid/i.test(session?.message)) {
-            throw new Error(session.message);
-        }
-
-        const normalized = this._ingestSession(session);
-
-        if (!this.region || this.region === 'prod') {
-            try {
-                const ti = await this.get('/api/v1/account/tier_info', 0, /*autologin*/ false, /*httpErrorAsError*/ false);
-                const discovered = ti?.tier || ti?.region || ti?.account?.tier;
-                if (discovered && discovered !== this.region) this.region = discovered;
-            } catch (e) {
-                log.debug('tier_info lookup failed; staying on region:', this.region, e?.message || e);
-            }
-        }
-
-        return normalized;
-    }
-
-    async _performOAuthGrant(grantType, client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true, extras = {}) {
-        const params = new URLSearchParams();
-        const add = (key, value) => {
-            if (value === undefined || value === null || value === '') return;
-            params.append(key, String(value));
-        };
-        const scope = client.oauthScope || 'client offline_access';
-        const hardwareId = client.hardwareId || this.auth.hardwareId || this.auth.clientUUID;
-        const clientId = client.oauthClientId || this.auth.clientUUID;
-        add('grant_type', grantType);
-        add('client_id', clientId);
-        add('scope', scope);
-        add('client_secret', client.oauthClientSecret);
-        add('hardware_id', hardwareId);
-        add('unique_id', this.auth.clientUUID);
-        add('client_name', client.name);
-        add('client_type', client.type);
-        add('device_identifier', client.device);
-        add('app_name', client.appName);
-        add('app_version', client.appVersion);
-        add('os_version', client.os);
-        add('locale', client.locale);
-        add('time_zone', client.timeZone);
-        add('notification_key', client.notificationKey || this.auth.notificationKey);
-        for (const [key, value] of Object.entries(extras || {})) {
-            add(key, value);
-        }
-
-        const response = await this.post(REFRESH_ENDPOINT, params, false, httpErrorAsError, {
-            skipAuthHeader: true,
-            includeHeaders: true,
-        });
-        if (!response) return null;
-        const rawBody = response?.body ?? response;
-        if (!rawBody || typeof rawBody !== 'object') {
-            return rawBody;
-        }
-        const normalized = Object.assign({}, rawBody);
-        const headers = normalizeHeaderMap(response?.headers);
-        if (headers) normalized.headers = headers;
-        return normalized;
-    }
-
-    async passwordGrant(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
-        if (!this.hasCredentials()) {
-            throw new Error('Blink credentials are required for OAuth password grant');
-        }
-        const extras = {
+        client = Object.assign({}, DEFAULT_CLIENT_OPTIONS, client || {});
+        const data = {
             username: this.auth.email,
-            password: this.auth.password,
+            client_id: 'android',
+            scope: 'client',
+            hardware_id: this.auth.clientUUID
         };
-        if (this.auth.pin) extras.pin = this.auth.pin;
-        if (this.auth.otp) {
-            extras.verification_code = this.auth.otp;
-            extras.two_factor_token = this.auth.otp;
-            extras.otp = this.auth.otp;
-        }
-        return await this._performOAuthGrant('password', client, httpErrorAsError, extras);
-    }
 
-    async refreshGrant(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
-        if (!this.refreshToken) throw new Error('Missing refresh token');
-        return await this._performOAuthGrant('refresh_token', client, httpErrorAsError, {
-            refresh_token: this.refreshToken,
-        });
-    }
+       // Restore the refresh token from the saved file
 
-    async legacyAppLogin(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
-        if (!this.hasCredentials()) {
-            throw new Error('Blink credentials are required for legacy login');
+        if (this.refresh_token === undefined)
+        {
+            const authPath = path.join(this.api.user.storagePath?.() ?? this.api.user.customStoragePath, AUTH_FILE);
+            let contents
+
+            try { contents = fs.readFileSync(authPath, {encoding: 'utf8'}) } catch (e){ console.log('readFileSync', e); };
+
+            if (typeof contents === 'string')
+            {
+                let authConfig;
+
+                try { authConfig = JSON.parse(contents); } catch(e){ console.log('JSON.parse', e); }
+
+                if (typeof authConfig === 'object')
+                {
+                    this.refresh_token = authConfig.refresh_token;
+                }
+            }
         }
-        const payload = {
-            app_version: client.appVersion || DEFAULT_CLIENT_OPTIONS.appVersion,
-            client_name: client.name || DEFAULT_CLIENT_OPTIONS.name,
-            client_type: client.type || DEFAULT_CLIENT_OPTIONS.type,
-            device_identifier: client.device || DEFAULT_CLIENT_OPTIONS.device,
-            email: this.auth.email,
-            notification_key: client.notificationKey || this.auth.notificationKey,
-            os_version: client.os || DEFAULT_CLIENT_OPTIONS.os,
-            password: this.auth.password,
-            unique_id: this.auth.clientUUID,
-            locale: client.locale || DEFAULT_CLIENT_OPTIONS.locale,
-            time_zone: client.timeZone || DEFAULT_CLIENT_OPTIONS.timeZone,
-        };
-        if (this.auth.pin) payload.pin = this.auth.pin;
-        const response = await this.post('/api/v5/account/login', payload, false, httpErrorAsError, {
-            skipAuthHeader: true,
-            includeHeaders: true,
-        });
-        if (!response) return null;
-        const rawBody = response?.body ?? response;
-        if (!rawBody || typeof rawBody !== 'object') {
-            return rawBody;
+
+        // Use the refresh token to request a new one, or the password and 2FA if we don't have one
+
+        if (this.refresh_token)
+        {
+            data['grant_type']    = 'refresh_token';
+            data['refresh_token'] = this.refresh_token;
         }
-        const normalized = Object.assign({}, rawBody);
-        const headers = normalizeHeaderMap(response?.headers);
-        if (headers) normalized.headers = headers;
-        return normalized;
+        else
+        {
+            data['grant_type'] = 'password';
+            data['password']   = this.auth.password;
+        }
+
+        const res = await this.post('https://api.oauth.blink.com/oauth/token', data, false, httpErrorAsError);
+        if (/unauthorized|invalid/i.test(res?.message)) {
+            throw new Error(res.message);
+        }
+        else {
+            // Set the access token so that future calls will use it
+
+            this.token = res.access_token;
+            this.refresh_token = res.refresh_token
+
+            if (res.refresh_token)
+            {
+                const authPath = path.join(this.api.user.storagePath?.() ?? this.api.user.customStoragePath, AUTH_FILE);
+                const authConfig = JSON.stringify({refresh_token: res.refresh_token});  // Only save the refresh token.
+
+                try { fs.writeFileSync(authPath, authConfig, {mode: 0o600}); } catch(e) { console.log('fsWriteFileSync', e); }
+            }
+
+            // get the account_id for future calls
+
+            if (this.accountID === undefined)
+            {
+                const tier = await this.get('/api/v1/users/tier_info', 1, false, httpErrorAsError);
+
+                this.init(res.access_token, tier.account_id, res.account?.client_id, tier.tier);
+            }
+            
+            // Resolve the real shard (u003/prde/etc.) from tier_info if region is not yet known or is prod.
+            if (!this.region || this.region === 'prod') {
+                try {
+                    const ti = await this.get('/api/v1/account/tier_info', 0, /*autologin*/ false, /*httpErrorAsError*/ false);
+                    const discovered = ti?.tier || ti?.region || ti?.account?.tier;
+                    if (discovered && discovered !== this.region) this.region = discovered;
+                } catch (e) {
+                    // Optional probe; keep quiet unless debugging
+                    log.debug('tier_info lookup failed; staying on region:', this.region, e?.message || e);
+                }
+            }
+        }
+        return res;
     }
 
     /**

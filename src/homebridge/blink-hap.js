@@ -456,17 +456,11 @@ class BlinkCameraHAP extends BlinkCamera {
 }
 
 class BlinkHAP extends Blink {
-    constructor(clientUUID, auth, config = {}) {
+    constructor(clientUUID, auth, config = {}, api) {
         config = BlinkHAP.normalizeConfig(config);
-        super(
-            clientUUID,
-            auth,
-            config.statusPollingSeconds,
-            config.motionPollingSeconds,
-            config.snapshotSeconds,
-            config.tokenCachePath
-        );
+        super(clientUUID, auth, config.statusPollingSeconds, config.motionPollingSeconds, config.snapshotSeconds, api);
         this.config = config;
+        this.api = api;
     }
     static normalizeConfig(config = {}) {
         const newConfig = Object.assign({}, DEFAULT_OPTIONS, config);
