@@ -2,13 +2,38 @@
 
 <main class="container">
     <header>
-        <h1>Blink Token Manager</h1>
-        <p class="subtitle">Paste the access and refresh tokens you obtained from the Blink app, then keep them updated here.</p>
+        <h1>Blink Authentication Manager</h1>
+        <p class="subtitle">Use your Blink credentials or existing tokens to keep Homebridge authorised.</p>
     </header>
 
     <section class="status-panel">
         <div class="status-label">Status:</div>
         <div id="status" class="status-value">Loading…</div>
+    </section>
+
+    <section class="form-section">
+        <h2>Credentials (optional)</h2>
+        <p class="help-text">Provide your Blink login so the plugin can request fresh tokens automatically. The PIN/OTP fields are only needed when Blink prompts for 2FA.</p>
+        <label for="username">Email</label>
+        <input id="username" type="email" autocomplete="email" spellcheck="false" placeholder="name@example.com">
+
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" placeholder="Blink account password">
+
+        <div class="split">
+            <label for="pin">2FA PIN</label>
+            <label for="otp">2FA Code</label>
+        </div>
+        <div class="split">
+            <input id="pin" type="text" autocomplete="one-time-code" spellcheck="false" placeholder="e.g. 123456">
+            <input id="otp" type="text" autocomplete="one-time-code" spellcheck="false" placeholder="Optional OTP/token">
+        </div>
+
+        <div class="controls">
+            <button id="save-credentials" class="btn">Save Credentials</button>
+            <button id="login-credentials" class="btn primary">Login &amp; Fetch Tokens</button>
+            <button id="clear-credentials" class="btn subtle">Clear Credentials</button>
+        </div>
     </section>
 
     <section class="form-section">
@@ -77,7 +102,8 @@
 
     <section class="help">
         <h2>Need a refresher?</h2>
-        <p>Use a proxy or device inspection tool to obtain your Blink <code>access_token</code> and <code>refresh_token</code> directly from the official app. Paste them here, then press <strong>Save Tokens</strong>.</p>
+        <p>You can still extract an <code>access_token</code> and <code>refresh_token</code> from the Blink app or API and paste them here, then press <strong>Save Tokens</strong>.</p>
+        <p>If you provide your Blink email and password, the <strong>Login &amp; Fetch Tokens</strong> button will request fresh credentials automatically. Supply the PIN/OTP fields whenever Blink sends you a 2FA challenge.</p>
         <p>The <strong>Refresh Tokens</strong> button requests a fresh pair from Blink using the stored refresh token so your Homebridge instance stays authorised.</p>
     </section>
 </main>

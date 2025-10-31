@@ -125,6 +125,18 @@ header h1 {
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
+.form-section .help-text {
+    margin: 0;
+    font-size: 0.9rem;
+    color: #64748b;
+}
+
+.form-section .split {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+}
+
 .token-input {
     min-height: 120px;
 }

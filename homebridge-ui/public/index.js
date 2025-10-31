@@ -17,6 +17,10 @@
     };
 
     const statusEl = document.getElementById('status');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const pinInput = document.getElementById('pin');
+    const otpInput = document.getElementById('otp');
     const accessInput = document.getElementById('access-token');
     const refreshInput = document.getElementById('refresh-token');
     const hardwareInput = document.getElementById('hardware-id');
@@ -30,9 +34,12 @@
     const sessionEl = document.getElementById('detail-session');
     const oauthClientEl = document.getElementById('detail-oauth-client');
     const headersEl = document.getElementById('detail-headers');
-    const saveButton = document.getElementById('save-tokens');
+    const saveTokensButton = document.getElementById('save-tokens');
     const refreshButton = document.getElementById('refresh-tokens');
-    const clearButton = document.getElementById('clear-tokens');
+    const clearTokensButton = document.getElementById('clear-tokens');
+    const saveCredentialsButton = document.getElementById('save-credentials');
+    const loginButton = document.getElementById('login-credentials');
+    const clearCredentialsButton = document.getElementById('clear-credentials');
 
     function formatExpiry(timestamp) {
         if (!timestamp) return '—';
@@ -71,6 +78,10 @@
     }
 
     function syncFormFromConfig() {
+        usernameInput.value = state.config.username || state.config.email || '';
+        passwordInput.value = state.config.password || '';
+        pinInput.value = state.config.pin || '';
+        otpInput.value = state.config.otp || state.config.twoFactorCode || state.config.twoFactorToken || '';
         hardwareInput.value = state.config.hardwareId || '';
         accessInput.value = state.config.accessToken || '';
         refreshInput.value = state.config.refreshToken || '';
@@ -78,6 +89,10 @@
 
     function getFormValues() {
         return {
+            username: usernameInput.value.trim(),
+            password: passwordInput.value,
+            pin: pinInput.value.trim(),
+            otp: otpInput.value.trim(),
             hardwareId: hardwareInput.value.trim(),
             accessToken: accessInput.value.trim(),
             refreshToken: refreshInput.value.trim(),
@@ -86,9 +101,12 @@
 
     function setBusy(isBusy) {
         state.busy = isBusy;
-        saveButton.disabled = isBusy;
+        saveTokensButton.disabled = isBusy;
         refreshButton.disabled = isBusy;
-        clearButton.disabled = isBusy;
+        clearTokensButton.disabled = isBusy;
+        saveCredentialsButton.disabled = isBusy;
+        loginButton.disabled = isBusy;
+        clearCredentialsButton.disabled = isBusy;
     }
 
     async function loadConfig() {
@@ -131,6 +149,25 @@
         };
     }
 
+    async function saveCredentials() {
+        if (state.busy) return;
+        const { username, password, pin, otp } = getFormValues();
+        if (!username && !password && !pin && !otp) {
+            toast.error('Enter at least one credential value before saving.');
+            return;
+        }
+        setBusy(true);
+        try {
+            await persistConfig({ username, password, pin, otp });
+            toast.success('Blink credentials saved.');
+        } catch (err) {
+            console.error('Unable to save Blink credentials', err);
+            toast.error(err?.message || 'Unable to save Blink credentials.');
+        } finally {
+            setBusy(false);
+        }
+    }
+
     async function saveTokens() {
         if (state.busy) return;
         setBusy(true);
@@ -151,11 +188,54 @@
                 tokenExpiresAt: state.config.tokenExpiresAt,
             });
             const tokens = response?.tokens || {};
-            await persistConfig(normalizePersistPayload(tokens, form));
+            await persistConfig({
+                ...normalizePersistPayload(tokens, form),
+                username: form.username || state.config.username || '',
+                password: form.password || state.config.password || '',
+                pin: form.pin || state.config.pin || '',
+                otp: form.otp || state.config.otp || '',
+            });
             toast.success('Blink tokens saved.');
         } catch (err) {
             console.error('Unable to save Blink tokens', err);
             toast.error(err?.message || 'Unable to save Blink tokens.');
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function loginWithCredentials() {
+        if (state.busy) return;
+        const form = getFormValues();
+        if (!form.username || !form.password) {
+            toast.error('Enter your Blink email and password before logging in.');
+            return;
+        }
+        setBusy(true);
+        try {
+            const response = await ui.request('/tokens/login', {
+                username: form.username,
+                password: form.password,
+                pin: form.pin,
+                otp: form.otp,
+                hardwareId: form.hardwareId || state.config.hardwareId,
+                refreshToken: form.refreshToken || state.config.refreshToken,
+                accessToken: form.accessToken || state.config.accessToken,
+                tokenExpiresAt: state.config.tokenExpiresAt,
+            });
+            const tokens = response?.tokens || {};
+            await persistConfig({
+                ...normalizePersistPayload(tokens, { refreshToken: form.refreshToken || state.config.refreshToken, hardwareId: form.hardwareId || state.config.hardwareId }),
+                username: form.username,
+                password: form.password,
+                pin: '',
+                otp: '',
+            });
+            syncFormFromConfig();
+            toast.success('Blink login successful. Tokens updated.');
+        } catch (err) {
+            console.error('Blink login failed', err);
+            toast.error(err?.message || 'Blink login failed. Verify your credentials and 2FA inputs.');
         } finally {
             setBusy(false);
         }
@@ -180,7 +260,13 @@
             });
             const tokens = response?.tokens || {};
             tokens.headers = response?.headers || tokens.headers;
-            await persistConfig(normalizePersistPayload(tokens, { refreshToken, hardwareId: form.hardwareId }));
+            await persistConfig({
+                ...normalizePersistPayload(tokens, { refreshToken, hardwareId: form.hardwareId }),
+                username: form.username || state.config.username || '',
+                password: form.password || state.config.password || '',
+                pin: state.config.pin || '',
+                otp: state.config.otp || '',
+            });
             toast.success('Blink tokens refreshed successfully.');
         } catch (err) {
             console.error('Blink token refresh failed', err);
@@ -207,6 +293,10 @@
                 tokenHeaders: null,
                 hardwareId: state.config.hardwareId || '',
                 oauthClientId: '',
+                username: state.config.username || '',
+                password: state.config.password || '',
+                pin: state.config.pin || '',
+                otp: state.config.otp || '',
             });
             toast.success('Blink tokens cleared.');
         } catch (err) {
@@ -217,9 +307,32 @@
         }
     }
 
-    saveButton.addEventListener('click', () => saveTokens());
+    async function clearCredentials() {
+        if (state.busy) return;
+        setBusy(true);
+        try {
+            await persistConfig({
+                username: '',
+                password: '',
+                pin: '',
+                otp: '',
+            });
+            syncFormFromConfig();
+            toast.success('Blink credentials cleared.');
+        } catch (err) {
+            console.error('Unable to clear Blink credentials', err);
+            toast.error(err?.message || 'Unable to clear Blink credentials.');
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    saveCredentialsButton.addEventListener('click', () => saveCredentials());
+    loginButton.addEventListener('click', () => loginWithCredentials());
+    clearCredentialsButton.addEventListener('click', () => clearCredentials());
+    saveTokensButton.addEventListener('click', () => saveTokens());
     refreshButton.addEventListener('click', () => refreshTokens());
-    clearButton.addEventListener('click', () => clearTokens());
+    clearTokensButton.addEventListener('click', () => clearTokens());
 
     ui.addEventListener('config-changed', async () => {
         await loadConfig();

@@ -1,6 +1,8 @@
 const { URLSearchParams } = require('url');
 const { HomebridgePluginUiServer } = require('@homebridge/plugin-ui-utils');
 const { log: sharedLog } = require('../src/log');
+const BlinkAPI = require('../src/blink-api');
+const { randomUUID } = require('crypto');
 
 const REFRESH_ENDPOINT = 'https://api.oauth.blink.com/oauth/token';
 const DEFAULT_SCOPE = 'client offline_access';
@@ -123,6 +125,16 @@ class PluginUiServer extends HomebridgePluginUiServer {
                 return await this.handleRefreshRequest(payload);
             } catch (err) {
                 this.log.error('/tokens/refresh error:', err);
+                throw err;
+            }
+        });
+
+        this.onRequest('/tokens/login', async payload => {
+            try {
+                this.log.info('/tokens/login requested');
+                return await this.handleLoginRequest(payload);
+            } catch (err) {
+                this.log.error('/tokens/login error:', err);
                 throw err;
             }
         });
@@ -252,6 +264,58 @@ class PluginUiServer extends HomebridgePluginUiServer {
         }
 
         throw lastError || new Error('Blink token refresh failed.');
+    }
+
+    async handleLoginRequest(payload = {}) {
+        const username = normalizeString(payload.username || payload.email);
+        const password = normalizeString(payload.password);
+        if (!username || !password) {
+            throw new Error('Blink username and password are required to request new tokens.');
+        }
+
+        const pin = normalizeString(payload.pin);
+        const otp = normalizeString(payload.otp || payload.twoFactorCode || payload.twoFactorToken);
+        let hardwareId = normalizeString(payload.hardwareId || payload.hardware_id);
+        const refreshToken = normalizeString(payload.refreshToken || payload.refresh_token);
+        const accessToken = normalizeString(payload.accessToken || payload.access_token);
+        const tokenExpiresAt = payload.tokenExpiresAt ?? payload.expires_at ?? null;
+
+        const clientUUID = hardwareId || normalizeString(payload.clientUUID) || randomUUID().toUpperCase();
+        if (!hardwareId) hardwareId = clientUUID;
+
+        const authOverrides = {
+            clientUUID,
+            hardwareId,
+            email: username,
+            password,
+        };
+        if (pin) authOverrides.pin = pin;
+        if (otp) authOverrides.otp = otp;
+        if (refreshToken) authOverrides.refreshToken = refreshToken;
+        if (accessToken) authOverrides.accessToken = accessToken;
+        if (tokenExpiresAt) authOverrides.expires_at = tokenExpiresAt;
+
+        const api = new BlinkAPI(clientUUID, authOverrides);
+        let session;
+        try {
+            session = await api.login(true, null, false);
+        } catch (err) {
+            throw new Error(err?.message || 'Blink authentication failed. Check credentials and 2FA inputs.');
+        }
+
+        const bundle = api.getOAuthBundle();
+        if (!bundle || !bundle.access_token) {
+            throw new Error('Blink did not return a valid access token. Verify your credentials and 2FA information.');
+        }
+
+        const responseHeaders = session?.headers || session?.token_headers || bundle.headers || null;
+
+        return {
+            status: 'ok',
+            tokens: mergeHeaderFields({ ...bundle }, responseHeaders || {}),
+            headers: responseHeaders,
+            raw: session,
+        };
     }
 }
 
