@@ -1,16 +1,14 @@
-const http = require('http');
-const crypto = require('crypto');
-const { URL, URLSearchParams } = require('url');
+          response_type: 'code',
+          scope,
+        });
+const { URLSearchParams } = require('url');
 const { HomebridgePluginUiServer } = require('@homebridge/plugin-ui-utils');
 const { log: sharedLog } = require('../src/log');
 
-const OAUTH_AUTHORIZE_URL = 'https://api.oauth.blink.com/oauth/v2/authorize';
-const OAUTH_SIGNIN_URL = 'https://api.oauth.blink.com/oauth/v2/signin';
-const OAUTH_TOKEN_URL = 'https://api.oauth.blink.com/oauth/token';
-const CALLBACK_PATH = '/blink/oauth/callback';
-const SESSION_TTL_MS = 5 * 60 * 1000;
-
-// Spoof headers to match native iOS Blink app for server-side requests
+const REFRESH_ENDPOINT = 'https://api.oauth.blink.com/oauth/refresh';
+const DEFAULT_SCOPE = 'client';
+const DEFAULT_CLIENT_ID = 'blink/com.immediasemi.ios.blink';
+const DEFAULT_CLIENT_SECRET = 'cBl6zzw1bYw3mjKwHnGXcgZEnKQS68EX';
 const IOS_UA = 'Blink/49.2 (iPhone; iOS 26.1; Scale/3.00)';
 const IOS_HEADERS = {
     'User-Agent': IOS_UA,
@@ -47,48 +45,87 @@ function createLoggerOutputs(candidate) {
     return { call, error, info, debug, warn };
 }
 
+function normalizeString(value) {
+    if (value === undefined || value === null) return '';
+    if (typeof value !== 'string') return String(value);
+    return value.trim();
+}
+
+function toNumber(value) {
+    const str = normalizeString(value);
+    if (!str) return null;
+    if (!/^-?\d+$/.test(str)) return str;
+    const parsed = Number(str);
+    return Number.isNaN(parsed) ? null : parsed;
+}
+
+function collectHeaders(response) {
+    const headers = {};
+    if (!response?.headers) return headers;
+    for (const [key, value] of response.headers.entries()) {
+        headers[key.toLowerCase()] = value;
+    }
+    return headers;
+}
+
+function mergeHeaderFields(bundle = {}, headers = {}) {
+    const preferred = new Map([
+        ['account_id', ['account-id', 'x-account-id']],
+        ['client_id', ['client-id', 'x-client-id']],
+        ['region', ['region', 'x-region']],
+        ['token_type', ['token-type', 'x-token-type']],
+        ['session_id', ['session-id', 'x-session-id']],
+        ['hardware_id', ['hardware-id', 'x-hardware-id']],
+        ['scope', ['scope']],
+    ]);
+
+    for (const [target, options] of preferred.entries()) {
+        if (bundle[target]) continue;
+        for (const headerKey of options) {
+            const headerValue = headers[headerKey];
+            if (headerValue !== undefined && headerValue !== null && headerValue !== '') {
+                const normalized = toNumber(headerValue);
+                bundle[target] = normalized;
+                break;
+            }
+        }
+    }
+
+    if (!bundle.region && bundle.scope && /rest-(\w+)/.test(bundle.scope)) {
+        bundle.region = RegExp.$1;
+    }
+
+    return bundle;
+}
+
 class PluginUiServer extends HomebridgePluginUiServer {
     constructor(customLog) {
         super();
 
         this.loggerOutput = createLoggerOutputs(customLog);
-        this.logLevel = 'debug';
-
         const logFn = (...args) => this.loggerOutput.call(...args);
         logFn.error = (...args) => this.loggerOutput.error(...args);
-        logFn.info = (...args) => {
-            if (this.isVerbose()) {
-                this.loggerOutput.info(...args);
-            }
-        };
-        logFn.debug = (...args) => {
-            if (this.isDebug()) {
-                this.loggerOutput.debug(...args);
-            }
-        };
+        logFn.info = (...args) => this.loggerOutput.info(...args);
+        logFn.debug = (...args) => this.loggerOutput.debug(...args);
         logFn.warn = (...args) => this.loggerOutput.warn(...args);
         this.log = logFn;
 
-        this.log.info('PluginUiServer constructor called with customLog:', !!customLog);
-
-        this.sessions = new Map();
-
-        this.onRequest('/oauth/start', async (payload) => {
-            try { this.log.info('/oauth/start requested, payload:', JSON.stringify(payload ?? {})); } catch {}
+        this.onRequest('/tokens/normalize', async payload => {
             try {
-                return await this.handleOAuthStart(payload);
+                this.log.info('/tokens/normalize requested');
+                return await this.handleNormalizeRequest(payload);
             } catch (err) {
-                this.log.error('/oauth/start handler error:', err);
+                this.log.error('/tokens/normalize error:', err);
                 throw err;
             }
         });
-        
-        this.onRequest('/oauth/status', async (payload) => {
-            try { this.log.info('/oauth/status requested, payload:', JSON.stringify(payload ?? {})); } catch {}
+
+        this.onRequest('/tokens/refresh', async payload => {
             try {
-                return await this.handleOAuthStatus(payload);
+                this.log.info('/tokens/refresh requested');
+                return await this.handleRefreshRequest(payload);
             } catch (err) {
-                this.log.error('/oauth/status handler error:', err);
+                this.log.error('/tokens/refresh error:', err);
                 throw err;
             }
         });
@@ -96,322 +133,92 @@ class PluginUiServer extends HomebridgePluginUiServer {
         this.ready();
     }
 
-    // helper: try listening on a port; resolves with server and port if successful, rejects if error
-    tryListen(server, port, host = '127.0.0.1') {
-        return new Promise((resolve, reject) => {
-            server.once('error', err => {
-            server.removeAllListeners('listening');
-            reject(err);
-            });
-            server.once('listening', () => {
-            server.removeAllListeners('error');
-            resolve({ server, port });
-            });
-            server.listen(port, host);
-        });
-    }
+    async handleNormalizeRequest(payload = {}) {
+        const accessToken = normalizeString(payload.accessToken || payload.access_token);
+        const refreshToken = normalizeString(payload.refreshToken || payload.refresh_token);
+        const expiresAt = payload.expires_at || payload.tokenExpiresAt || null;
+        const hardwareId = normalizeString(payload.hardwareId || payload.hardware_id);
+        const scope = normalizeString(payload.scope) || DEFAULT_SCOPE;
 
-    // helper: attempt to find a free port starting from basePort, up to some limit
-    async findFreePort(basePort = 1025, host = '127.0.0.1', maxPort = 65535) {
-        let port = basePort;
-        while (port <= maxPort) {
-            const server = http.createServer();  // simple server to test binding
-            try {
-                const result = await this.tryListen(server, port, host);
-                // close that test server, we will reuse port for real server
-                result.server.close();
-                return port;
-            } catch (err) {
-                if (err.code === 'EADDRINUSE') {
-                    port++;
-                    continue;
-                }
-                // some other error - throw
-                throw err;
-            }
-        }
-        throw new Error(`No free port found in range ${basePort}-${maxPort}`);
-    }
-
-    async handleOAuthStart(payload = {}) {
-        const requestedPort = Number(payload.redirectPort || 52888);
-        if (!Number.isInteger(requestedPort) || requestedPort < 1025 || requestedPort > 65535) {
-            throw new Error('Redirect port must be between 1025 and 65535.');
-        }
-
-        const protocol = this.normalizeProtocol(payload.redirectProtocol);
-        const host = payload.redirectHost || 'localhost';
-        // store for URL building and relay rewriting
-        const publicHost = host;
-        const publicProtocol = protocol;
-
-        const hardwareId = payload.hardwareId || crypto.randomUUID();
-        const clientId = 'ios';
-        const scope = 'client';
-        const sessionId = crypto.randomUUID();
-        // const state = crypto.randomBytes(16).toString('hex');
-        const codeVerifier = this.buildCodeVerifier();
-        const codeChallenge = this.buildCodeChallenge(codeVerifier);
-
-        const session = {
-          id: sessionId,
-          codeVerifier,
-          clientId,
-          scope,
-          hardwareId,
-          createdAt: Date.now(),
-          status: 'pending',
-          timeout: null,
-          server: null,
-          redirectUri: null,
-          callbackPort: null,
-          tokens: null,
-          error: null,
+        return {
+            status: 'ok',
+            tokens: {
+                access_token: accessToken || null,
+                refresh_token: refreshToken || null,
+                expires_at: expiresAt ? Number(expiresAt) : null,
+                account_id: toNumber(payload.accountId || payload.account_id),
+                client_id: toNumber(payload.clientId || payload.client_id),
+                region: normalizeString(payload.region) || null,
+                hardware_id: hardwareId || null,
+                scope,
+                token_type: normalizeString(payload.tokenType || payload.token_type) || 'Bearer',
+                session_id: normalizeString(payload.sessionId || payload.session_id) || null,
+                headers: payload.tokenHeaders || payload.headers || null,
+            },
         };
-
-        this.sessions.set(sessionId, session);
-
-        // Bind to all interfaces so remote browsers (e.g., 192.168.1.100) can reach us
-        await this.startCallbackServer(session, requestedPort, '0.0.0.0');
-        // record what host/protocol to publish in URLs
-        session.publicHost = publicHost;
-        session.publicProtocol = publicProtocol;
-
-        // Now that session.callbackPort is set:
-        const actualPort = session.callbackPort;
-        const redirectUri = `${session.publicProtocol}//${session.publicHost}:${actualPort}${CALLBACK_PATH}`;
-        const localProxyUrl = `${session.publicProtocol}//${session.publicHost}:${actualPort}/blink/proxy-signin`;
-        session.redirectUri = redirectUri;
-        this.log.debug(`Using redirect URI for session ${sessionId}: ${redirectUri}`);
-
-        // NOTE: Opening /authorize directly mirrors the native iOS flow and lets Blink set
-        // cookies and CSRF in the user's browser; proxying /signin causes CORS/XHR and CSP issues.
-        // Open /authorize first (observed iOS flow). Blink will set cookies/CSRF in the browser.
-        const authorizeParams = new URLSearchParams({
-          app_brand: 'blink',
-          app_version: '49.2',
-          client_id: clientId,
-          code_challenge: codeChallenge,
-          code_challenge_method: 'S256',
-          device_brand: 'Apple',
-          device_model: 'iPhone18,1',
-          device_os_version: '26.1',
-          hardware_id: hardwareId,
-          redirect_uri: redirectUri,
-          response_type: 'code',
-          scope,
-        });
-        const authUrl = `${OAUTH_AUTHORIZE_URL}?${authorizeParams.toString()}`;
-        this.log.info('Auth URL (authorize):', authUrl);
-        this.log.debug('Using iOS UA for server requests:', IOS_UA);
-
-        session.timeout = setTimeout(() => this.failSession(sessionId, 'Timed out waiting for Blink OAuth callback.'), SESSION_TTL_MS);
-
-        return { sessionId, authUrl, hardwareId };
     }
 
-    async handleOAuthStatus(payload = {}) {
-        const session = payload.sessionId && this.sessions.get(payload.sessionId);
-        if (!session) {
-            return { status: 'expired' };
-        }
-        if (session.status === 'complete') {
-            this.sessions.delete(payload.sessionId);
-            return {
-                status: 'complete',
-                hardwareId: session.hardwareId,
-                tokens: session.tokens,
-            };
-        }
-        if (session.status === 'error') {
-            this.sessions.delete(payload.sessionId);
-            return {
-                status: 'error',
-                message: session.error,
-            };
-        }
-        return { status: 'pending' };
-    }
-
-    setLogLevel(level) {
-        const setting = typeof level === 'string' ? level.toLowerCase() : '';
-        if (setting === 'debug') {
-            this.logLevel = 'debug';
-        }
-        else if (setting === 'verbose') {
-            this.logLevel = 'verbose';
-        }
-        else {
-            this.logLevel = 'error';
-        }
-    }
-
-    isVerbose() {
-        return this.logLevel === 'verbose' || this.logLevel === 'debug';
-    }
-
-    isDebug() {
-        return this.logLevel === 'debug';
-    }
-
-    normalizeProtocol(input) {
-        if (typeof input !== 'string' || !input.trim()) return 'http:';
-        const value = input.endsWith(':') ? input : `${input}:`;
-        return ['http:', 'https:'].includes(value) ? value : 'http:';
-    }
-
-    buildCodeVerifier() {
-        return crypto.randomBytes(64).toString('base64url');
-    }
-
-    buildCodeChallenge(verifier) {
-        return crypto.createHash('sha256').update(verifier).digest('base64url');
-    }
-
-
-    async startCallbackServer(session, requestedPort, bindHost = '127.0.0.1') {
-        const host = bindHost;
-        let port = Number(requestedPort || 52888);
-
-        this.log.info(`Attempting to start callback server for session ${session.id} starting at port ${port}`);
-
-        try {
-            port = await this.findFreePort(port, host);
-        } catch (err) {
-            this.log.error(`Unable to find free port for OAuth callback server: ${err.message}`);
-            throw err;
+    async handleRefreshRequest(payload = {}) {
+        const refreshToken = normalizeString(payload.refreshToken || payload.refresh_token);
+        if (!refreshToken) {
+            throw new Error('Refresh token is required to request new Blink credentials.');
         }
 
-        const server = http.createServer((req, res) => {
-            this.handleCallbackRequest(session.id, req, res);
+        const hardwareId = normalizeString(payload.hardwareId || payload.hardware_id);
+        const clientId = normalizeString(payload.clientId || payload.client_id) || DEFAULT_CLIENT_ID;
+        const clientSecret = normalizeString(payload.clientSecret || payload.client_secret) || DEFAULT_CLIENT_SECRET;
+        const scope = normalizeString(payload.scope) || DEFAULT_SCOPE;
+
+        const params = new URLSearchParams();
+        params.append('grant_type', 'refresh_token');
+        params.append('refresh_token', refreshToken);
+        params.append('client_id', clientId);
+        params.append('client_secret', clientSecret);
+        params.append('scope', scope);
+        if (hardwareId) {
+            params.append('hardware_id', hardwareId);
+        }
+
+        const response = await fetch(REFRESH_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                ...IOS_HEADERS,
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            },
+            body: params,
         });
 
-        try {
-            await new Promise((resolve, reject) => {
-                server.once('error', err => {
-                    reject(err);
-                });
-                server.once('listening', () => {
-                    resolve();
-                });
-                server.listen(port, host);
-            });
-        } catch (err) {
-            this.log.error(`Failed to start callback server on port ${port}: ${err.message}`);
-            throw err;
-        }
-        session.server = server;
-        session.callbackPort = port;
-        session.bindHost = host;
-        this.log.info(`Callback server listening on ${host}:${port} (public: ${session.publicProtocol || 'http:'}//${session.publicHost || 'localhost'}:${port})`);
-    }
-
-    async handleCallbackRequest(sessionId, req, res) {
-        const session = this.sessions.get(sessionId);
-        if (!session) {
-            this.log.debug("Blink session expired. Close this tab and retry from Homebridge.", req.url);
-            this.respond(res, 410, 'Blink session expired. Close this tab and retry from Homebridge.');
-            return;
+        const rawBody = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const reason = rawBody?.error_description || rawBody?.error || response.statusText;
+            throw new Error(reason || 'Blink token refresh failed.');
         }
 
-        try {
-            const url = new URL(req.url, session.redirectUri);
-            if (url.pathname !== CALLBACK_PATH) {
-                this.log.debug("Not Found", req.url);
-                this.respond(res, 404, 'Not Found');
-                return;
-            }
-            const code = url.searchParams.get('code');
-            if (!code) {
-                this.log.debug("Missing authorization code in Blink callback.", req.url);
-                this.failSession(sessionId, 'Missing authorization code in Blink callback.');
-                this.respond(res, 400, 'Blink OAuth failed: missing authorization code.');
-                return;
-            }
-            this.log.debug("Success!", req.url);
-            this.respond(res, 200, '<h1>Success!</h1><p>You can close this window and return to Homebridge.</p>');
-            await this.exchangeCode(session, code);
-        } catch (err) {
-            this.log.debug("Unexpected Error", req.url);
-            this.failSession(sessionId, err?.message || 'Unexpected Blink OAuth error.');
-            this.respond(res, 500, 'Blink OAuth flow encountered an unexpected error.');
-        } finally {
-            this.teardownSessionServer(sessionId);
-        }
-    }
+        const headers = collectHeaders(response);
+        const expiresIn = Number(rawBody?.expires_in || headers['expires-in'] || 0);
+        const expiresAt = rawBody?.expires_at
+            ? Number(rawBody.expires_at)
+            : (expiresIn > 0 ? Date.now() + expiresIn * 1000 : null);
 
-    respond(res, statusCode, body) {
-        res.writeHead(statusCode, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(`<html><body>${body}</body></html>`);
-    }
+        const tokens = mergeHeaderFields({
+            access_token: rawBody?.access_token || null,
+            refresh_token: rawBody?.refresh_token || refreshToken || null,
+            expires_at: expiresAt,
+            account_id: toNumber(rawBody?.account_id),
+            client_id: toNumber(rawBody?.client_id),
+            region: rawBody?.region || null,
+            scope: rawBody?.scope || scope,
+            token_type: rawBody?.token_type || headers['token-type'] || 'Bearer',
+            session_id: rawBody?.session_id || headers['session-id'] || null,
+            hardware_id: rawBody?.hardware_id || hardwareId || headers['hardware-id'] || null,
+        }, headers);
 
-    async exchangeCode(session, code) {
-        try {
-            const body = new URLSearchParams({
-                grant_type: 'authorization_code',
-                code,
-                client_id: session.clientId,
-                redirect_uri: session.redirectUri,
-                code_verifier: session.codeVerifier,
-                scope: session.scope,
-                hardware_id: session.hardwareId,
-            });
-            const response = await fetch(OAUTH_TOKEN_URL, {
-                method: 'POST',
-                headers: {
-                    ...IOS_HEADERS,
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body,
-            });
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                const error = data?.error_description || data?.error || response.statusText;
-                throw new Error(error || 'Blink token exchange failed.');
-            }
-            const expiresAt = data.expires_in ? Date.now() + Number(data.expires_in) * 1000 : null;
-            session.tokens = {
-                access_token: data.access_token,
-                refresh_token: data.refresh_token,
-                expires_at: expiresAt,
-                scope: data.scope,
-                token_type: data.token_type,
-                session_id: data.session_id,
-                account_id: data.account_id ?? null,
-                client_id: data.client_id ?? null,
-                region: data.region ?? null,
-            };
-            session.status = 'complete';
-            this.clearTimeout(session);
-        } catch (err) {
-            this.failSession(session.id, err?.message || 'Blink token exchange failed.');
-        }
-    }
-
-    failSession(sessionId, message) {
-        const session = this.sessions.get(sessionId);
-        if (!session) return;
-        session.status = 'error';
-        session.error = message;
-        this.clearTimeout(session);
-        this.teardownSessionServer(sessionId);
-        this.log.error(`Blink OAuth session ${sessionId} failed: ${message}`);
-    }
-
-    teardownSessionServer(sessionId) {
-        const session = this.sessions.get(sessionId);
-        if (!session) return;
-        if (session.server) {
-            session.server.close();
-            session.server = null;
-        }
-    }
-
-    clearTimeout(session) {
-        if (session.timeout) {
-            clearTimeout(session.timeout);
-            session.timeout = null;
-        }
+        return {
+            status: 'ok',
+            tokens,
+            headers,
+            raw: rawBody,
+        };
     }
 }
 

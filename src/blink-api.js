@@ -15,9 +15,20 @@ const DEFAULT_HOST_PREFIX = 'rest-prod';
 const DEFAULT_URL = `${DEFAULT_HOST_PREFIX}.${BLINK_API_HOST}`;
 const BASE_URL = `https://${DEFAULT_URL}`;
 const OAUTH_BASE_URL = 'https://api.oauth.blink.com';
-const LOGIN_ENDPOINT = `${OAUTH_BASE_URL}/oauth/token`;
 const REFRESH_ENDPOINT = `${OAUTH_BASE_URL}/oauth/refresh`;
 const CACHE = new Map();
+const OAUTH_ORIGIN = 'https://api.oauth.blink.com';
+
+function normalizeHeaderMap(source) {
+    if (!source || typeof source !== 'object') return null;
+    const entries = Object.entries(source);
+    if (!entries.length) return null;
+    return entries.reduce((acc, [key, value]) => {
+        if (value === undefined || value === null || value === '') return acc;
+        acc[String(key).toLowerCase()] = String(value);
+        return acc;
+    }, {});
+}
 
 const buildRestBaseUrl = (region = 'prod') => {
     const shard = region && region !== 'prod' ? `rest-${region}` : DEFAULT_HOST_PREFIX;
@@ -190,32 +201,49 @@ const DEFAULT_CLIENT_OPTIONS = {
 /* eslint-enable */
 
 class BlinkAPI {
-    constructor(clientUUID, auth = { path: '~/.blink', section: 'default' }) {
-        const ini = IniFile.read(process.env.BLINK || auth.path, process.env.BLINK_SECTION || auth.section);
-        this.auth = Object.assign({
-            email: process.env.BLINK_EMAIL || ini.email,
-            password: process.env.BLINK_PASSWORD || ini.password,
-            pin: process.env.BLINK_PIN || ini.pin,
-            clientUUID: clientUUID || process.env.BLINK_CLIENT_UUID || ini.client || DEFAULT_BLINK_CLIENT_UUID,
-            notificationKey: process.env.BLINK_NOTIFICATION_KEY || ini.notification ||
-                crypto.randomBytes(32).toString('hex'),
-                hardwareId: auth.hardwareId || process.env.BLINK_HARDWARE_ID || ini.hardware_id ||
-                clientUUID || DEFAULT_BLINK_CLIENT_UUID,
-        }, auth);
+    constructor(clientUUID, auth = {}) {
+        const {
+            path: authPath = '~/.blink',
+            section: authSection = 'default',
+            ...authOverrides
+        } = auth || {};
+        const ini = IniFile.read(process.env.BLINK || authPath, process.env.BLINK_SECTION || authSection);
+
+        const resolvedClientUUID = authOverrides.clientUUID
+            || clientUUID
+            || process.env.BLINK_CLIENT_UUID
+            || ini.client
+            || DEFAULT_BLINK_CLIENT_UUID;
+
+        const resolvedHardwareId = authOverrides.hardwareId
+            || process.env.BLINK_HARDWARE_ID
+            || ini.hardware_id
+            || resolvedClientUUID;
+
+        const resolvedNotificationKey = authOverrides.notificationKey
+            || process.env.BLINK_NOTIFICATION_KEY
+            || ini.notification
+            || crypto.randomBytes(32).toString('hex');
+
+        this.auth = {
+            clientUUID: resolvedClientUUID,
+            hardwareId: resolvedHardwareId,
+            notificationKey: resolvedNotificationKey,
+        };
         const clientOverrides = Object.entries({
             notificationKey: this.auth.notificationKey,
-            appName: process.env.BLINK_APP_NAME || ini.app_name,
-            device: process.env.BLINK_DEVICE || ini.device || ini.device_identifier,
-            type: process.env.BLINK_CLIENT_TYPE || ini.client_type,
-            name: process.env.BLINK_CLIENT_NAME || ini.client_name,
-            appVersion: process.env.BLINK_APP_VERSION || ini.app_version,
-            os: process.env.BLINK_OS_VERSION || ini.os_version,
-            userAgent: process.env.BLINK_USER_AGENT || ini.user_agent,
-            locale: process.env.BLINK_LOCALE || ini.locale,
-            timeZone: process.env.BLINK_TIME_ZONE || ini.time_zone,
-            oauthScope: process.env.BLINK_OAUTH_SCOPE || ini.oauth_scope,
-            oauthClientId: process.env.BLINK_OAUTH_CLIENT_ID || ini.oauth_client_id,
-            oauthClientSecret: process.env.BLINK_OAUTH_CLIENT_SECRET || ini.oauth_client_secret,
+            appName: authOverrides.appName || process.env.BLINK_APP_NAME || ini.app_name,
+            device: authOverrides.device || process.env.BLINK_DEVICE || ini.device || ini.device_identifier,
+            type: authOverrides.type || process.env.BLINK_CLIENT_TYPE || ini.client_type,
+            name: authOverrides.name || process.env.BLINK_CLIENT_NAME || ini.client_name,
+            appVersion: authOverrides.appVersion || process.env.BLINK_APP_VERSION || ini.app_version,
+            os: authOverrides.os || process.env.BLINK_OS_VERSION || ini.os_version,
+            userAgent: authOverrides.userAgent || process.env.BLINK_USER_AGENT || ini.user_agent,
+            locale: authOverrides.locale || process.env.BLINK_LOCALE || ini.locale,
+            timeZone: authOverrides.timeZone || process.env.BLINK_TIME_ZONE || ini.time_zone,
+            oauthScope: authOverrides.oauthScope || process.env.BLINK_OAUTH_SCOPE || ini.oauth_scope,
+            oauthClientId: authOverrides.oauthClientId || process.env.BLINK_OAUTH_CLIENT_ID || ini.oauth_client_id,
+            oauthClientSecret: authOverrides.oauthClientSecret || process.env.BLINK_OAUTH_CLIENT_SECRET || ini.oauth_client_secret,
             hardwareId: this.auth.hardwareId,
         }).reduce((acc, [key, value]) => {
             if (value !== undefined && value !== null && value !== '') {
@@ -227,6 +255,10 @@ class BlinkAPI {
         this._session = null;
         this.refreshToken = null;
         this.tokenExpiresAt = 0;
+        this.scope = null;
+        this.tokenType = null;
+        this.sessionID = null;
+        this.tokenHeaders = null;
     }
 
     set region(val) {
@@ -264,6 +296,11 @@ class BlinkAPI {
             account_id: this.accountID,
             client_id: this.clientID,
             region: this.region,
+            scope: this.scope,
+            token_type: this.tokenType,
+            session_id: this.sessionID,
+            hardware_id: this.auth.hardwareId,
+            headers: this.tokenHeaders ? Object.assign({}, this.tokenHeaders) : null,
         };
     }
 
@@ -275,6 +312,17 @@ class BlinkAPI {
         this.accountID = bundle.account_id || this.accountID;
         this.clientID = bundle.client_id || this.clientID;
         this.region = bundle.region || this.region;
+        this.scope = bundle.scope || this.scope;
+        this.tokenType = bundle.token_type || this.tokenType;
+        this.sessionID = bundle.session_id || this.sessionID;
+        if (bundle.hardware_id) this.auth.hardwareId = bundle.hardware_id;
+        const normalizedHeaders = normalizeHeaderMap(bundle.headers || bundle.token_headers);
+        if (normalizedHeaders) {
+            this.tokenHeaders = normalizedHeaders;
+            if (normalizedHeaders['hardware-id']) {
+                this.auth.hardwareId = normalizedHeaders['hardware-id'];
+            }
+        }
         const account = Object.assign({}, this._session?.account, {
             account_id: this.accountID,
             client_id: this.clientID,
@@ -287,6 +335,10 @@ class BlinkAPI {
             access_token: this.token,
             refresh_token: this.refreshToken,
             expires_at: this.tokenExpiresAt,
+            scope: this.scope,
+            token_type: this.tokenType,
+            session_id: this.sessionID,
+            headers: this.tokenHeaders,
         });
         return this._session;
     }
@@ -304,10 +356,25 @@ class BlinkAPI {
         const expiresAt = session.expires_at || (session.expires_in
             ? Date.now() + Number(session.expires_in) * 1000
             : this.tokenExpiresAt || 0);
+        const scope = session.scope || session.auth?.scope || normalized.scope || this.scope;
+        const tokenType = session.token_type || session.auth?.token_type || normalized.token_type || this.tokenType;
+        const sessionId = session.session_id || normalized.session_id || this.sessionID;
+
+        const headerSource = session.headers || session.token_headers || normalized.headers;
+        const normalizedHeaders = normalizeHeaderMap(headerSource);
+        if (normalizedHeaders) {
+            this.tokenHeaders = normalizedHeaders;
+            if (normalizedHeaders['hardware-id']) {
+                this.auth.hardwareId = normalizedHeaders['hardware-id'];
+            }
+        }
 
         this.token = accessToken;
         this.refreshToken = refreshToken || this.refreshToken;
         this.tokenExpiresAt = expiresAt || 0;
+        if (scope) this.scope = scope;
+        if (tokenType) this.tokenType = tokenType;
+        if (sessionId) this.sessionID = sessionId;
 
         let account = {};
         if (normalized.account) account = Object.assign(account, normalized.account);
@@ -329,6 +396,10 @@ class BlinkAPI {
         normalized.access_token = accessToken;
         normalized.refresh_token = refreshToken;
         normalized.expires_at = this.tokenExpiresAt;
+        normalized.scope = this.scope;
+        normalized.token_type = this.tokenType;
+        normalized.session_id = this.sessionID;
+        normalized.headers = this.tokenHeaders;
 
         this._session = normalized;
         this.init(this.token, this.accountID, this.clientID, this.region);
@@ -419,6 +490,7 @@ class BlinkAPI {
         const preferContentType = options.contentType;
         const rawBody = options.rawBody === true;
         const formEncode = options.form === true;
+        const includeHeaders = options.includeHeaders === true;
         const requestOptions = { method, headers: Object.assign(headers, extraHeaders) };
         const hasContentType = () => Boolean(requestOptions.headers['Content-Type']);
         const setContentType = value => {
@@ -573,6 +645,13 @@ class BlinkAPI {
         if (method !== 'GET') {
             CACHE.delete(`GET:${targetPath}`);
         }
+        if (includeHeaders) {
+            return {
+                body: respBody,
+                headers: Object.fromEntries(res.headers.entries()),
+                status: res.status,
+            };
+        }
         return respBody;
     }
 
@@ -684,10 +763,8 @@ class BlinkAPI {
         if (this.canRefresh()) {
             try {
                 session = await this.refreshGrant(this._clientOptions, httpErrorAsError);
-                // If the refresh response doesn't contain a usable access token
-                // treat it as a failed refresh so we fall back to password grant.
                 if (session && !(session.access_token || session.auth?.token)) {
-                    log.debug('Blink refresh grant returned no access token, falling back to password grant');
+                    log.debug('Blink refresh grant returned no access token; treating as failed refresh');
                     session = null;
                 }
             } catch (err) {
@@ -697,10 +774,7 @@ class BlinkAPI {
         }
 
         if (!session) {
-            if (!this.auth?.password) {
-                throw new Error('Blink OAuth session expired; please re-authorize via the Homebridge UI.');
-            }
-            session = await this.passwordGrant(this._clientOptions, httpErrorAsError);
+            throw new Error('Blink access/refresh tokens are missing or expired. Provide fresh tokens in the Homebridge configuration.');
         }
 
         if (/unauthorized|invalid/i.test(session?.message)) {
@@ -722,74 +796,6 @@ class BlinkAPI {
         return normalized;
     }
 
-    async passwordGrant(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
-        if (!this.auth?.email || !this.auth?.password) throw new Error('Email or Password is blank');
-
-        const params = new URLSearchParams();
-        const add = (key, value) => {
-            if (value === undefined || value === null) return;
-            params.append(key, String(value));
-        };
-        const scope = client.oauthScope || 'client offline_access';
-        add('grant_type', 'password');
-        add('username', this.auth.email);
-        add('password', this.auth.password);
-        add('scope', scope);
-        add('client_id', client.oauthClientId || this.auth.clientUUID);
-        add('unique_id', this.auth.clientUUID);
-        add('client_name', client.name);
-        add('client_type', client.type);
-        add('device_identifier', client.device);
-        add('hardware_id', client.hardwareId || this.auth.hardwareId || this.auth.clientUUID);
-        add('os_version', client.os);
-        add('app_version', client.appVersion);
-        add('notification_key', client.notificationKey || this.auth.notificationKey);
-        add('locale', client.locale);
-        add('time_zone', client.timeZone);
-        add('client_secret', client.oauthClientSecret);
-        if (this.auth.pin) add('reauth', 'true');
-
-        const fallbackLogin = async reason => {
-            log.debug('Blink OAuth token endpoint unavailable, using legacy login:', reason);
-            const legacyPayload = {
-                email: this.auth.email,
-                password: this.auth.password,
-                client_name: client.name,
-                client_type: client.type,
-                device_identifier: client.device,
-                hardware_id: client.hardwareId || this.auth.hardwareId || this.auth.clientUUID,
-                os_version: client.os,
-                app_version: client.appVersion,
-                app_name: client.appName,
-                notification_key: client.notificationKey || this.auth.notificationKey,
-                unique_id: this.auth.clientUUID,
-            };
-            if (client.locale) legacyPayload.locale = client.locale;
-            if (client.timeZone) legacyPayload.time_zone = client.timeZone;
-            if (this.auth.pin) legacyPayload.pin = this.auth.pin;
-            return await this.post('/api/v5/account/login', legacyPayload, false, httpErrorAsError);
-        };
-
-        const isOAuthNotFoundError = err => {
-            if (!err) return false;
-            const message = err?.message || '';
-            return /\/oauth\/token/.test(message) && /404/.test(message);
-        };
-
-        try {
-            const response = await this.post(LOGIN_ENDPOINT, params, false, httpErrorAsError, { skipAuthHeader: true });
-            if (!httpErrorAsError && typeof response === 'string' && /not\s+found/i.test(response)) {
-                return await fallbackLogin('legacy 404 response body');
-            }
-            return response;
-        } catch (err) {
-            if (isOAuthNotFoundError(err)) {
-                return await fallbackLogin(err.message || err);
-            }
-            throw err;
-        }
-    }
-
     async refreshGrant(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
         if (!this.refreshToken) throw new Error('Missing refresh token');
 
@@ -806,7 +812,17 @@ class BlinkAPI {
         add('client_secret', client.oauthClientSecret);
         add('hardware_id', client.hardwareId || this.auth.hardwareId || this.auth.clientUUID);
 
-        return await this.post(REFRESH_ENDPOINT, params, false, httpErrorAsError, { skipAuthHeader: true });
+        const response = await this.post(REFRESH_ENDPOINT, params, false, httpErrorAsError, {
+            skipAuthHeader: true,
+            includeHeaders: true,
+        });
+        const body = response?.body ?? response;
+        if (!body || typeof body !== 'object') {
+            return body;
+        }
+        const headers = normalizeHeaderMap(response?.headers);
+        if (headers) body.headers = headers;
+        return Object.assign({}, body, { headers });
     }
 
     /**
@@ -844,8 +860,11 @@ class BlinkAPI {
      * }
      **/
     async verifyPIN(pin, httpAsError = true) {
+        if (pin === undefined || pin === null || pin === '') {
+            throw new Error('PIN is required for verification');
+        }
         const data = {
-            pin: pin || this.auth.pin,
+            pin,
         };
         return await this.post(`/api/v4/account/{accountID}/client/{clientID}/pin/verify/`, data, false, httpAsError);
     }

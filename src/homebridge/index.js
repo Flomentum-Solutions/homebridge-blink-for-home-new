@@ -27,12 +27,11 @@ class HomebridgeBlink {
         this.accessories = {}
         this.disabled = false
 
-        const hasLegacyCredentials = Boolean(this.config.username && this.config.password);
-        const hasOAuthTokens = Boolean(this.config.accessToken || this.config.refreshToken);
-        if (!hasLegacyCredentials && !hasOAuthTokens) {
+        const hasTokens = Boolean(this.config.accessToken && this.config.refreshToken);
+        if (!hasTokens) {
             this.disabled = true
             this.log.error(
-                'Blink requires OAuth tokens or legacy credentials. Launch the Homebridge UI to sign in.'
+                'Blink requires an access token and refresh token. Add both values in the Homebridge UI.'
             )
             this.log.error(
                 'Blink platform initialisation skipped until credentials are provided.'
@@ -128,17 +127,13 @@ class HomebridgeBlink {
     }
 
     async setupBlink () {
-        const hasLegacyCredentials = Boolean(this.config.username && this.config.password)
-        const hasOAuthTokens = Boolean(this.config.accessToken || this.config.refreshToken)
-        if (!hasLegacyCredentials && !hasOAuthTokens) {
-            throw Error('Missing Blink credentials or OAuth tokens in config.json')
+        const hasTokens = Boolean(this.config.accessToken && this.config.refreshToken)
+        if (!hasTokens) {
+            throw Error('Missing Blink access and refresh tokens in config.json')
         }
-        const uuidSeed = `${this.config.name || 'Blink'}:${this.config.username || ''}`
+        const uuidSeed = this.config.hardwareId || `${this.config.name || 'Blink'}`
         const clientUUID = this.config.hardwareId || this.api.hap.uuid.generate(uuidSeed)
         const auth = {
-            email: this.config.username,
-            password: this.config.password,
-            pin: this.config.pin,
             hardwareId: clientUUID,
             clientUUID
         }
@@ -170,6 +165,11 @@ class HomebridgeBlink {
                 account_id: this.config.accountId,
                 client_id: this.config.clientId,
                 region: this.config.region,
+                scope: this.config.tokenScope,
+                token_type: this.config.tokenType,
+                session_id: this.config.sessionId,
+                hardware_id: this.config.hardwareId,
+                headers: this.config.tokenHeaders,
             })
         }
         try {

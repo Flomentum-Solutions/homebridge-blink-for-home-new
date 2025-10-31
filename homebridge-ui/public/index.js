@@ -13,54 +13,87 @@
 
     const state = {
         config: {},
-        sessionId: null,
-        polling: null,
+        busy: false,
     };
 
     const statusEl = document.getElementById('status');
-    const hardwareEl = document.getElementById('detail-hardware');
+    const accessInput = document.getElementById('access-token');
+    const refreshInput = document.getElementById('refresh-token');
+    const hardwareInput = document.getElementById('hardware-id');
     const expiryEl = document.getElementById('detail-expiry');
+    const hardwareSummaryEl = document.getElementById('detail-hardware');
     const accountEl = document.getElementById('detail-account');
+    const clientEl = document.getElementById('detail-client');
     const regionEl = document.getElementById('detail-region');
-    const signInButton = document.getElementById('sign-in');
-    const resetButton = document.getElementById('reset');
+    const scopeEl = document.getElementById('detail-scope');
+    const typeEl = document.getElementById('detail-type');
+    const sessionEl = document.getElementById('detail-session');
+    const headersEl = document.getElementById('detail-headers');
+    const saveButton = document.getElementById('save-tokens');
+    const refreshButton = document.getElementById('refresh-tokens');
+    const clearButton = document.getElementById('clear-tokens');
 
     function formatExpiry(timestamp) {
         if (!timestamp) return '—';
         const date = new Date(Number(timestamp));
         if (Number.isNaN(date.getTime())) return '—';
-        return `${date.toLocaleString()} (${Math.max(0, Math.round((timestamp - Date.now()) / 60000))} min)`;
+        const minutes = Math.max(0, Math.round((timestamp - Date.now()) / 60000));
+        return `${date.toLocaleString()} (${minutes} min)`;
     }
 
-    function updateStatus(config) {
-        const status = config.signInStatus || 'Not signed in';
+    function formatHeaders(headers) {
+        if (!headers || typeof headers !== 'object') return '—';
+        const entries = Object.entries(headers).filter(([, value]) => value !== undefined && value !== null && value !== '');
+        if (!entries.length) return '—';
+        return `${entries.length} header${entries.length === 1 ? '' : 's'}`;
+    }
+
+    function updateStatus() {
+        const hasAccess = Boolean(state.config.accessToken);
+        const hasRefresh = Boolean(state.config.refreshToken);
+        let status = 'Tokens missing';
+        if (hasAccess && hasRefresh) status = 'Tokens saved';
+        else if (hasRefresh) status = 'Access token missing';
         statusEl.textContent = status;
-        hardwareEl.textContent = config.hardwareId || '—';
-        expiryEl.textContent = config.tokenExpiresAt ? formatExpiry(config.tokenExpiresAt) : '—';
-        if (config.accountId) {
-            accountEl.textContent = `Account ${config.accountId}`;
-        }
-        else if (config.username) {
-            accountEl.textContent = config.username;
-        }
-        else {
-            accountEl.textContent = '—';
-        }
-        regionEl.textContent = config.region || '—';
-        const isBusy = state.sessionId !== null;
-        signInButton.disabled = isBusy;
-        resetButton.disabled = isBusy;
+
+        hardwareInput.placeholder = state.config.hardwareId || 'Blink hardware UUID';
+        expiryEl.textContent = state.config.tokenExpiresAt ? formatExpiry(state.config.tokenExpiresAt) : '—';
+        hardwareSummaryEl.textContent = state.config.hardwareId || '—';
+        accountEl.textContent = state.config.accountId ? `Account ${state.config.accountId}` : '—';
+        clientEl.textContent = state.config.clientId ? `Client ${state.config.clientId}` : '—';
+        regionEl.textContent = state.config.region || '—';
+        scopeEl.textContent = state.config.tokenScope || '—';
+        typeEl.textContent = state.config.tokenType || '—';
+        sessionEl.textContent = state.config.sessionId || '—';
+        headersEl.textContent = formatHeaders(state.config.tokenHeaders);
+    }
+
+    function syncFormFromConfig() {
+        hardwareInput.value = state.config.hardwareId || '';
+        accessInput.value = state.config.accessToken || '';
+        refreshInput.value = state.config.refreshToken || '';
+    }
+
+    function getFormValues() {
+        return {
+            hardwareId: hardwareInput.value.trim(),
+            accessToken: accessInput.value.trim(),
+            refreshToken: refreshInput.value.trim(),
+        };
+    }
+
+    function setBusy(isBusy) {
+        state.busy = isBusy;
+        saveButton.disabled = isBusy;
+        refreshButton.disabled = isBusy;
+        clearButton.disabled = isBusy;
     }
 
     async function loadConfig() {
         const configs = await ui.getPluginConfig();
-        if (Array.isArray(configs) && configs.length > 0) {
-            state.config = { ...configs[0] };
-        }
-        else {
-            state.config = {};
-        }
-        updateStatus(state.config);
+        state.config = Array.isArray(configs) && configs.length > 0 ? { ...configs[0] } : {};
+        syncFormFromConfig();
+        updateStatus();
     }
 
     async function persistConfig(newValues) {
@@ -69,144 +102,118 @@
         const merged = { ...current, ...newValues };
         await ui.updatePluginConfig([merged]);
         state.config = merged;
-        updateStatus(state.config);
         if (typeof ui.savePluginConfig === 'function') {
             await ui.savePluginConfig();
         }
+        syncFormFromConfig();
+        updateStatus();
     }
 
-    function stopPolling() {
-        if (state.polling) {
-            clearTimeout(state.polling);
-            state.polling = null;
-        }
+    function normalizePersistPayload(tokens = {}, fallback = {}) {
+        const strOrEmpty = value => (value === undefined || value === null ? '' : String(value).trim());
+        return {
+            hardwareId: strOrEmpty(tokens.hardware_id ?? fallback.hardwareId ?? state.config.hardwareId ?? ''),
+            accessToken: strOrEmpty(tokens.access_token ?? fallback.accessToken ?? ''),
+            refreshToken: strOrEmpty(tokens.refresh_token ?? fallback.refreshToken ?? state.config.refreshToken ?? ''),
+            tokenExpiresAt: tokens.expires_at ?? null,
+            accountId: tokens.account_id ?? null,
+            clientId: tokens.client_id ?? null,
+            region: tokens.region ?? null,
+            tokenScope: strOrEmpty(tokens.scope ?? state.config.tokenScope ?? ''),
+            tokenType: strOrEmpty(tokens.token_type ?? state.config.tokenType ?? ''),
+            sessionId: strOrEmpty(tokens.session_id ?? state.config.sessionId ?? ''),
+            tokenHeaders: tokens.headers
+                ? { ...tokens.headers }
+                : (state.config.tokenHeaders ?? null),
+        };
     }
 
-    async function pollSession() {
-        if (!state.sessionId) return;
+    async function saveTokens() {
+        if (state.busy) return;
+        setBusy(true);
         try {
-            const response = await ui.request('/oauth/status', { sessionId: state.sessionId });
-            switch (response?.status) {
-                case 'pending':
-                    state.polling = setTimeout(pollSession, 1500);
-                    break;
-                case 'complete':
-                    stopPolling();
-                    state.sessionId = null;
-                    await persistConfig({
-                        hardwareId: response.hardwareId || state.config.hardwareId,
-                        accessToken: response.tokens?.access_token || null,
-                        refreshToken: response.tokens?.refresh_token || null,
-                        tokenExpiresAt: response.tokens?.expires_at || null,
-                        accountId: response.tokens?.account_id || null,
-                        clientId: response.tokens?.client_id || null,
-                        region: response.tokens?.region || null,
-                        signInStatus: 'Signed in',
-                    });
-                    toast.success('Blink account linked successfully.');
-                    break;
-                case 'error':
-                    stopPolling();
-                    state.sessionId = null;
-                    await persistConfig({
-                        signInStatus: 'Error',
-                    });
-                    toast.error(response.message || 'Blink OAuth flow failed.');
-                    break;
-                default:
-                    stopPolling();
-                    state.sessionId = null;
-                    break;
-            }
-        }
-        catch (err) {
-            console.error('Status polling failed', err);
-            stopPolling();
-            state.sessionId = null;
-            toast.error(err?.message || 'Unable to monitor Blink OAuth flow.');
-            await persistConfig({
-                signInStatus: 'Error',
+            const form = getFormValues();
+            const response = await ui.request('/tokens/normalize', {
+                accessToken: form.accessToken,
+                refreshToken: form.refreshToken,
+                hardwareId: form.hardwareId,
+                scope: state.config.tokenScope,
+                tokenHeaders: state.config.tokenHeaders,
+                tokenType: state.config.tokenType,
+                sessionId: state.config.sessionId,
+                accountId: state.config.accountId,
+                clientId: state.config.clientId,
+                region: state.config.region,
+                tokenExpiresAt: state.config.tokenExpiresAt,
             });
+            const tokens = response?.tokens || {};
+            await persistConfig(normalizePersistPayload(tokens, form));
+            toast.success('Blink tokens saved.');
+        } catch (err) {
+            console.error('Unable to save Blink tokens', err);
+            toast.error(err?.message || 'Unable to save Blink tokens.');
+        } finally {
+            setBusy(false);
         }
     }
 
-    function defaultHardwareId() {
-        if (state.config.hardwareId) return state.config.hardwareId;
-        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
-        const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx';
-        return template.replace(/[xy]/g, c => {
-            const r = Math.random() * 16 | 0;
-            const v = c === 'x' ? r : (r & 0x3 | 0x8);
-            return v.toString(16);
-        });
-    }
+    async function refreshTokens() {
+        if (state.busy) return;
+        const form = getFormValues();
+        const refreshToken = form.refreshToken || state.config.refreshToken;
+        if (!refreshToken) {
+            toast.error('Add a refresh token before attempting to refresh.');
+            return;
+        }
 
-    async function beginSignIn() {
-        stopPolling();
-        signInButton.disabled = true;
-        resetButton.disabled = true;
+        setBusy(true);
         try {
-            const payload = {
-                redirectPort: state.config.redirectPort || 52888,
-                clientId: state.config.oauthClientId || 'ios',
-                scope: state.config.oauthScope || 'client offline_access',
-                hardwareId: state.config.hardwareId || defaultHardwareId(),
-                redirectHost: window.location.hostname,
-                redirectProtocol: window.location.protocol,
-                logging: state.config.logging,
-            };
-            const response = await ui.request('/oauth/start', payload);
-            if (response?.error) {
-                throw new Error(response.error);
-            }
-            if (response?.sessionId) {
-                state.sessionId = response.sessionId;
-                if (response.hardwareId && response.hardwareId !== state.config.hardwareId) {
-                    state.config.hardwareId = response.hardwareId;
-                }
-                await persistConfig({
-                    hardwareId: state.config.hardwareId,
-                    signInStatus: 'Not signed in',
-                });
-                if (response.authUrl) {
-                    window.open(response.authUrl, '_blank', 'noopener');
-                }
-                state.polling = setTimeout(pollSession, 1500);
-            }
-            else {
-                throw new Error('Unable to start Blink OAuth session.');
-            }
-        }
-        catch (err) {
-            console.error('Unable to start Blink OAuth flow', err);
-            toast.error(err?.message || 'Unable to start Blink OAuth flow.');
-            await persistConfig({
-                signInStatus: 'Error',
+            const response = await ui.request('/tokens/refresh', {
+                refreshToken,
+                hardwareId: form.hardwareId || state.config.hardwareId,
+                scope: state.config.tokenScope,
             });
-        }
-        finally {
-            signInButton.disabled = state.sessionId !== null;
-            resetButton.disabled = state.sessionId !== null;
+            const tokens = response?.tokens || {};
+            tokens.headers = response?.headers || tokens.headers;
+            await persistConfig(normalizePersistPayload(tokens, { refreshToken, hardwareId: form.hardwareId }));
+            toast.success('Blink tokens refreshed successfully.');
+        } catch (err) {
+            console.error('Blink token refresh failed', err);
+            toast.error(err?.message || 'Blink token refresh failed.');
+        } finally {
+            setBusy(false);
         }
     }
 
-    async function resetLink() {
-        stopPolling();
-        state.sessionId = null;
-        await persistConfig({
-            accessToken: null,
-            refreshToken: null,
-            tokenExpiresAt: null,
-            accountId: null,
-            clientId: null,
-            region: null,
-            signInStatus: 'Not signed in',
-        });
-        toast.success('Blink OAuth tokens cleared.');
+    async function clearTokens() {
+        if (state.busy) return;
+        setBusy(true);
+        try {
+            await persistConfig({
+                accessToken: '',
+                refreshToken: '',
+                tokenExpiresAt: null,
+                accountId: null,
+                clientId: null,
+                region: null,
+                tokenScope: '',
+                tokenType: '',
+                sessionId: '',
+                tokenHeaders: null,
+                hardwareId: state.config.hardwareId || '',
+            });
+            toast.success('Blink tokens cleared.');
+        } catch (err) {
+            console.error('Unable to clear Blink tokens', err);
+            toast.error(err?.message || 'Unable to clear Blink tokens.');
+        } finally {
+            setBusy(false);
+        }
     }
 
-    signInButton.addEventListener('click', beginSignIn);
-    resetButton.addEventListener('click', resetLink);
+    saveButton.addEventListener('click', () => saveTokens());
+    refreshButton.addEventListener('click', () => refreshTokens());
+    clearButton.addEventListener('click', () => clearTokens());
 
     ui.addEventListener('config-changed', async () => {
         await loadConfig();

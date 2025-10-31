@@ -2,46 +2,79 @@
 
 <main class="container">
     <header>
-        <h1>Blink Account Link</h1>
-        <p class="subtitle">Complete the Blink OAuth flow to connect your account to Homebridge.</p>
+        <h1>Blink Token Manager</h1>
+        <p class="subtitle">Paste the access and refresh tokens you obtained from the Blink app, then keep them updated here.</p>
     </header>
+
     <section class="status-panel">
         <div class="status-label">Status:</div>
         <div id="status" class="status-value">Loading…</div>
     </section>
-    <section class="controls">
-        <button id="sign-in" class="btn primary">Sign in with Blink</button>
-        <button id="reset" class="btn" title="Remove stored tokens and start fresh">Reset link</button>
+
+    <section class="form-section">
+        <h2>Tokens</h2>
+        <label for="hardware-id">Hardware ID</label>
+        <input id="hardware-id" type="text" autocomplete="off" spellcheck="false" placeholder="Blink hardware UUID">
+
+        <label for="access-token">Access Token</label>
+        <textarea id="access-token" class="token-input" spellcheck="false" placeholder="Paste your Blink access_token"></textarea>
+
+        <label for="refresh-token">Refresh Token</label>
+        <textarea id="refresh-token" class="token-input" spellcheck="false" placeholder="Paste your Blink refresh_token"></textarea>
+
+        <div class="controls">
+            <button id="save-tokens" class="btn primary">Save Tokens</button>
+            <button id="refresh-tokens" class="btn">Refresh Tokens</button>
+            <button id="clear-tokens" class="btn subtle">Clear Tokens</button>
+        </div>
     </section>
+
     <section class="details">
-        <h2>Current OAuth details</h2>
+        <h2>Token Metadata</h2>
         <dl>
-            <div>
-                <dt>Hardware ID</dt>
-                <dd id="detail-hardware">—</dd>
-            </div>
             <div>
                 <dt>Access token expires</dt>
                 <dd id="detail-expiry">—</dd>
+            </div>
+            <div>
+                <dt>Hardware ID</dt>
+                <dd id="detail-hardware">—</dd>
             </div>
             <div>
                 <dt>Blink account</dt>
                 <dd id="detail-account">—</dd>
             </div>
             <div>
+                <dt>Client ID</dt>
+                <dd id="detail-client">—</dd>
+            </div>
+            <div>
                 <dt>Region</dt>
                 <dd id="detail-region">—</dd>
             </div>
+            <div>
+                <dt>Token scope</dt>
+                <dd id="detail-scope">—</dd>
+            </div>
+            <div>
+                <dt>Token type</dt>
+                <dd id="detail-type">—</dd>
+            </div>
+            <div>
+                <dt>Session ID</dt>
+                <dd id="detail-session">—</dd>
+            </div>
+            <div>
+                <dt>Captured headers</dt>
+                <dd id="detail-headers">—</dd>
+            </div>
         </dl>
     </section>
+
     <section class="help">
-        <h2>How it works</h2>
-        <ol>
-            <li>Click <strong>Sign in with Blink</strong>. A browser tab opens to Blink’s login page.</li>
-            <li>Complete the Blink sign-in and MFA steps. When finished, you’ll see a success message.</li>
-            <li>Return to this screen; the status updates to <em>Signed in</em> once tokens are stored.</li>
-        </ol>
-        <p>If the flow stalls, press <strong>Reset link</strong> to clear stored tokens and try again.</p>
+        <h2>Need a refresher?</h2>
+        <p>Use a proxy or device inspection tool to obtain your Blink <code>access_token</code> and <code>refresh_token</code> directly from the official app. Paste them here, then press <strong>Save Tokens</strong>.</p>
+        <p>The <strong>Refresh Tokens</strong> button requests a fresh pair from Blink using the stored refresh token so your Homebridge instance stays authorised.</p>
     </section>
 </main>
 

@@ -11,65 +11,22 @@
                 "default": "Blink",
                 "type": "string"
             },
-            "username": {
-                "title": "username",
-                "type": "string",
-                "description": "Legacy credential field. Optional when using the OAuth sign-in flow."
-            },
-            "password": {
-                "title": "password",
-                "type": "string",
-                "description": "Legacy credential field. Optional when using the OAuth sign-in flow."
-            },
-            "pin": {
-                "title": "PIN",
-                "description": "The PIN sent during 2FA (leave blank on first use; enter after first auth attempt)",
-                "type": "number"
-            },
             "hardwareId": {
                 "title": "Hardware ID",
                 "type": "string",
-                "description": "Device identifier used for Blink OAuth. Generated automatically during sign in.",
-                "readOnly": true
-            },
-            "redirectPort": {
-                "title": "Local listener port",
-                "type": "integer",
-                "default": 52888,
-                "description": "Port used by the Homebridge host to capture the Blink OAuth callback."
-            },
-            "oauthClientId": {
-                "title": "OAuth Client ID",
-                "type": "string",
-                "default": "ios",
-                "description": "Identifier passed to Blink when requesting authorization codes."
-            },
-            "oauthScope": {
-                "title": "OAuth Scope",
-                "type": "string",
-                "default": "client offline_access",
-                "description": "Scopes requested during Blink OAuth authorization."
-            },
-            "signInStatus": {
-                "title": "Sign-in status",
-                "type": "string",
-                "enum": [
-                    "Not signed in",
-                    "Signed in",
-                    "Error"
-                ],
-                "default": "Not signed in",
-                "readOnly": true
+                "description": "Device identifier associated with your Blink session. Re-use the ID that was used when generating the tokens, or leave blank to let the plugin reuse its last value."
             },
             "accessToken": {
                 "title": "Access Token",
                 "type": "string",
-                "readOnly": true
+                "description": "Paste the Blink access_token captured from your own device.",
+                "format": "textarea"
             },
             "refreshToken": {
                 "title": "Refresh Token",
                 "type": "string",
-                "readOnly": true
+                "description": "Paste the Blink refresh_token captured from your own device. The plugin uses this to keep the session fresh.",
+                "format": "textarea"
             },
             "tokenExpiresAt": {
                 "title": "Token Expiry (ms)",
@@ -89,6 +46,26 @@
             "region": {
                 "title": "Blink Region",
                 "type": "string",
+                "readOnly": true
+            },
+            "tokenScope": {
+                "title": "Token Scope",
+                "type": "string",
+                "readOnly": true
+            },
+            "tokenType": {
+                "title": "Token Type",
+                "type": "string",
+                "readOnly": true
+            },
+            "sessionId": {
+                "title": "Session ID",
+                "type": "string",
+                "readOnly": true
+            },
+            "tokenHeaders": {
+                "title": "Captured Token Headers",
+                "type": "object",
                 "readOnly": true
             },
             "ffmpegPath": {
@@ -183,7 +160,9 @@
             }
         },
         "required": [
-            "name"
+            "name",
+            "accessToken",
+            "refreshToken"
         ]
     },
     "layout": [
@@ -192,37 +171,28 @@
             "title": "Name"
         },
         {
-            "key": "username",
-            "title": "Credentials",
-            "placeholder": "user@example.com"
-        },
-        {
-            "key": "password",
-            "placeholder": "password",
-            "notitle": true
-        },
-        {
-            "key": "pin",
-            "placeholder": "2FA pin",
-            "notitle": true
-        },
-        {
             "type": "section",
-            "title": "Blink OAuth",
-            "expandable": true,
-            "expanded": false,
+            "title": "Blink Tokens",
+            "expandable": false,
             "items": [
-                "signInStatus",
+                {
+                    "key": "accessToken",
+                    "type": "textarea",
+                    "placeholder": "Paste your Blink access_token"
+                },
+                {
+                    "key": "refreshToken",
+                    "type": "textarea",
+                    "placeholder": "Paste your Blink refresh_token"
+                },
                 "hardwareId",
-                "redirectPort",
-                "oauthClientId",
-                "oauthScope",
-                "accessToken",
-                "refreshToken",
                 "tokenExpiresAt",
                 "accountId",
                 "clientId",
-                "region"
+                "region",
+                "tokenScope",
+                "tokenType",
+                "sessionId"
             ]
         },
         {
@@ -250,7 +220,8 @@
                 "camera-status-polling-seconds",
                 "camera-motion-polling-seconds",
                 "logging",
-                "enable-startup-diagnostic"
+                "enable-startup-diagnostic",
+                "tokenHeaders"
             ]
         }
     ]

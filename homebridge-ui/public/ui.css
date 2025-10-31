@@ -47,12 +47,6 @@ header h1 {
     font-size: 1.1rem;
 }
 
-.controls {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
-}
-
 .btn {
     appearance: none;
     border: 1px solid transparent;
@@ -83,8 +77,63 @@ header h1 {
     box-shadow: 0 10px 24px rgba(37, 99, 235, 0.25);
 }
 
+.btn.subtle {
+    background: transparent;
+    border-color: rgba(15, 23, 42, 0.12);
+    box-shadow: none;
+}
+
 .btn.primary:hover {
     background: #1d4ed8;
+}
+
+.form-section {
+    margin-top: 2rem;
+    background: #fff;
+    padding: 1.5rem;
+    border-radius: 16px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.form-section label {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #334155;
+}
+
+.form-section input,
+.form-section textarea {
+    width: 100%;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    font-size: 0.95rem;
+    padding: 0.75rem 0.9rem;
+    border-radius: 12px;
+    border: 1px solid rgba(15, 23, 42, 0.15);
+    background: #f8fafc;
+    color: inherit;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+    resize: vertical;
+}
+
+.form-section input:focus,
+.form-section textarea:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.token-input {
+    min-height: 120px;
+}
+
+.controls {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
 }
 
 .details {
@@ -157,6 +206,10 @@ header h1 {
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
     }
 
+    .btn.subtle {
+        border-color: rgba(226, 232, 240, 0.16);
+    }
+
     .btn.primary {
         background: #1d4ed8;
         box-shadow: 0 12px 30px rgba(37, 99, 235, 0.45);
@@ -165,6 +218,23 @@ header h1 {
     .details {
         background: rgba(15, 23, 42, 0.65);
         box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+    }
+
+    .form-section {
+        background: rgba(15, 23, 42, 0.65);
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+    }
+
+    .form-section input,
+    .form-section textarea {
+        background: rgba(15, 23, 42, 0.35);
+        border-color: rgba(148, 163, 184, 0.25);
+    }
+
+    .form-section input:focus,
+    .form-section textarea:focus {
+        border-color: #60a5fa;
+        box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.25);
     }
 
     .help {
