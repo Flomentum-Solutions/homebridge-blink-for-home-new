@@ -19,7 +19,6 @@ const DEFAULT_HOST_PREFIX = 'rest-prod';
 const DEFAULT_URL = `${DEFAULT_HOST_PREFIX}.${BLINK_API_HOST}`;
 const BASE_URL = `https://${DEFAULT_URL}`;
 const OAUTH_BASE_URL = 'https://api.oauth.blink.com';
-const REFRESH_ENDPOINT = `${OAUTH_BASE_URL}/oauth/token`;
 const CACHE = new Map();
 const AUTH_FILE = 'blink-auth.json';
 
@@ -38,6 +37,11 @@ const DEFAULT_CLIENT_OPTIONS = {
     oauthClientId: 'ios',
     oauthClientSecret: 'cBl6zzw1bYw3mjKwHnGXcgZEnKQS68EX',
     hardwareId: DEFAULT_BLINK_CLIENT_UUID,
+};
+
+const buildRestBaseUrl = (region = 'prod') => {
+    const shard = region && region !== 'prod' ? `rest-${region}` : DEFAULT_HOST_PREFIX;
+    return `https://${shard}.${BLINK_API_HOST}`;
 };
 
 /* eslint-disable */
