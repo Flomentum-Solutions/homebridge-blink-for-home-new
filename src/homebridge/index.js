@@ -128,8 +128,10 @@ class HomebridgeBlink {
 
     async setupBlink () {
         const hasTokens = Boolean(this.config.accessToken && this.config.refreshToken)
-        if (!hasTokens) {
-            throw Error('Missing Blink access and refresh tokens in config.json')
+        const username = this.config.username || this.config.email
+        const hasCredentials = Boolean(username && this.config.password)
+        if (!hasTokens && !hasCredentials) {
+            throw Error('Blink requires either access/refresh tokens or your Blink username/password in the Homebridge configuration.')
         }
         const uuidSeed = this.config.hardwareId || `${this.config.name || 'Blink'}`
         const clientUUID = this.config.hardwareId || this.api.hap.uuid.generate(uuidSeed)
@@ -137,6 +139,13 @@ class HomebridgeBlink {
             hardwareId: clientUUID,
             clientUUID
         }
+        if (hasCredentials) {
+            auth.email = username
+            auth.password = this.config.password
+        }
+        if (this.config.pin) auth.pin = this.config.pin
+        const otp = this.config.otp || this.config.twoFactorCode || this.config.twoFactorToken
+        if (otp) auth.otp = otp
 
         const oauthCachePath = path.join(
             this.api.user.storagePath(),

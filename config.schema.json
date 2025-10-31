@@ -16,6 +16,27 @@
                 "type": "string",
                 "description": "Device identifier associated with your Blink session. Re-use the ID that was used when generating the tokens, or leave blank to let the plugin reuse its last value."
             },
+            "username": {
+                "title": "Blink Email (optional)",
+                "type": "string",
+                "description": "Provide your Blink account email if you want the plugin to request fresh tokens automatically."
+            },
+            "password": {
+                "title": "Blink Password (optional)",
+                "type": "string",
+                "format": "password",
+                "description": "Blink account password, only required if you want the plugin to request new tokens on its own."
+            },
+            "pin": {
+                "title": "2FA PIN (optional)",
+                "type": "string",
+                "description": "One-time verification PIN from Blink (email/SMS). Supply this after a new login challenge."
+            },
+            "otp": {
+                "title": "2FA Code (optional)",
+                "type": "string",
+                "description": "If Blink provides an additional verification/OTP code, enter it here. Also accepts values supplied as twoFactorCode/twoFactorToken."
+            },
             "accessToken": {
                 "title": "Access Token",
                 "type": "string",
@@ -165,15 +186,28 @@
             }
         },
         "required": [
-            "name",
-            "accessToken",
-            "refreshToken"
+            "name"
         ]
     },
     "layout": [
         {
             "key": "name",
             "title": "Name"
+        },
+        {
+            "type": "section",
+            "title": "Blink Credentials (optional)",
+            "expandable": true,
+            "expanded": false,
+            "items": [
+                "username",
+                {
+                    "key": "password",
+                    "type": "password"
+                },
+                "pin",
+                "otp"
+            ]
         },
         {
             "type": "section",

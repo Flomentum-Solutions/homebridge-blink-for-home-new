@@ -225,10 +225,25 @@ class BlinkAPI {
             || ini.notification
             || crypto.randomBytes(32).toString('hex');
 
+        const resolvedEmail = authOverrides.email || process.env.BLINK_EMAIL || ini.email;
+        const resolvedPassword = authOverrides.password || process.env.BLINK_PASSWORD || ini.password;
+        const resolvedPin = authOverrides.pin || process.env.BLINK_PIN || ini.pin;
+        const resolvedOtp = authOverrides.otp
+            || authOverrides.twoFactorCode
+            || authOverrides.twoFactorToken
+            || process.env.BLINK_OTP
+            || process.env.BLINK_2FA
+            || ini.otp;
+
         this.auth = {
             clientUUID: resolvedClientUUID,
             hardwareId: resolvedHardwareId,
             notificationKey: resolvedNotificationKey,
+            email: resolvedEmail,
+            password: resolvedPassword,
+            pin: resolvedPin,
+            otp: resolvedOtp,
+            twoFactorToken: resolvedOtp,
         };
         const clientOverrides = Object.entries({
             notificationKey: this.auth.notificationKey,
@@ -259,6 +274,33 @@ class BlinkAPI {
         this.tokenType = null;
         this.sessionID = null;
         this.tokenHeaders = null;
+
+        const initialAccessToken = authOverrides.accessToken
+            || authOverrides.token
+            || ini.access_token
+            || ini.token;
+        if (initialAccessToken) this.token = initialAccessToken;
+
+        const initialRefreshToken = authOverrides.refreshToken
+            || ini.refresh_token;
+        if (initialRefreshToken) this.refreshToken = initialRefreshToken;
+
+        const initialExpiresAt = authOverrides.expires_at
+            || authOverrides.expiresAt
+            || authOverrides.tokenExpiresAt
+            || ini.expires_at;
+        if (initialExpiresAt !== undefined && initialExpiresAt !== null) {
+            const parsed = Number(initialExpiresAt);
+            if (!Number.isNaN(parsed)) this.tokenExpiresAt = parsed;
+        }
+
+        if (authOverrides.scope) this.scope = authOverrides.scope;
+        if (authOverrides.token_type || authOverrides.tokenType) {
+            this.tokenType = authOverrides.token_type || authOverrides.tokenType;
+        }
+        if (authOverrides.session_id || authOverrides.sessionId) {
+            this.sessionID = authOverrides.session_id || authOverrides.sessionId;
+        }
     }
 
     set region(val) {
@@ -285,6 +327,16 @@ class BlinkAPI {
 
     canRefresh() {
         return Boolean(this.refreshToken);
+    }
+
+    needRefresh(bufferMs = 60000) {
+        if (!this.token) return true;
+        if (!this.tokenExpiresAt) return false;
+        return (Date.now() + bufferMs) >= this.tokenExpiresAt;
+    }
+
+    hasCredentials() {
+        return Boolean(this.auth?.email && this.auth?.password);
     }
 
     getOAuthBundle() {
@@ -756,7 +808,7 @@ class BlinkAPI {
 
     async login(force = false, client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
         this._clientOptions = Object.assign({}, DEFAULT_CLIENT_OPTIONS, client || {});
-        if (!force && this.hasValidToken()) {
+        if (!force && !this.needRefresh()) {
             const session = this._session || this._ingestSession({
                 access_token: this.token,
                 refresh_token: this.refreshToken,
@@ -770,22 +822,59 @@ class BlinkAPI {
             return session;
         }
 
-        let session;
+        const hasToken = candidate => candidate && typeof candidate === 'object'
+            && (candidate.access_token || candidate.auth?.token);
+
+        let session = null;
+        let refreshError = null;
         if (this.canRefresh()) {
             try {
                 session = await this.refreshGrant(this._clientOptions, httpErrorAsError);
-                if (session && !(session.access_token || session.auth?.token)) {
+                if (!hasToken(session)) {
                     log.debug('Blink refresh grant returned no access token; treating as failed refresh');
                     session = null;
                 }
             } catch (err) {
+                refreshError = err;
                 log.debug('Blink refresh grant failed:', err?.message || err);
                 session = null;
             }
         }
 
+        const haveCredentials = this.hasCredentials();
+        if (!session && haveCredentials) {
+            try {
+                const oauthSession = await this.passwordGrant(this._clientOptions, httpErrorAsError);
+                if (hasToken(oauthSession)) {
+                    session = oauthSession;
+                } else if (oauthSession) {
+                    log.debug('Blink password grant returned unexpected payload; attempting legacy login');
+                }
+            } catch (err) {
+                log.debug('Blink password grant failed:', err?.message || err);
+            }
+
+            if (!session) {
+                try {
+                    const legacySession = await this.legacyAppLogin(this._clientOptions, httpErrorAsError);
+                    if (hasToken(legacySession)) {
+                        session = legacySession;
+                    } else if (legacySession) {
+                        log.debug('Blink legacy login returned unexpected payload; continuing without session');
+                    }
+                } catch (err) {
+                    log.debug('Blink legacy login failed:', err?.message || err);
+                }
+            }
+        }
+
         if (!session) {
-            throw new Error('Blink access/refresh tokens are missing or expired. Provide fresh tokens in the Homebridge configuration.');
+            const errorMsg = haveCredentials
+                ? 'Blink authentication failed. Please re-authorize or verify your Blink credentials.'
+                : 'Blink access/refresh tokens are missing or expired. Please re-authorize in the Homebridge UI.';
+            const error = new Error(errorMsg);
+            if (refreshError) error.cause = refreshError;
+            throw error;
         }
 
         if (/unauthorized|invalid/i.test(session?.message)) {
@@ -807,19 +896,16 @@ class BlinkAPI {
         return normalized;
     }
 
-    async refreshGrant(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
-        if (!this.refreshToken) throw new Error('Missing refresh token');
-
+    async _performOAuthGrant(grantType, client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true, extras = {}) {
         const params = new URLSearchParams();
         const add = (key, value) => {
-            if (value === undefined || value === null) return;
+            if (value === undefined || value === null || value === '') return;
             params.append(key, String(value));
         };
         const scope = client.oauthScope || 'client offline_access';
         const hardwareId = client.hardwareId || this.auth.hardwareId || this.auth.clientUUID;
         const clientId = client.oauthClientId || this.auth.clientUUID;
-        add('grant_type', 'refresh_token');
-        add('refresh_token', this.refreshToken);
+        add('grant_type', grantType);
         add('client_id', clientId);
         add('scope', scope);
         add('client_secret', client.oauthClientSecret);
@@ -834,18 +920,80 @@ class BlinkAPI {
         add('locale', client.locale);
         add('time_zone', client.timeZone);
         add('notification_key', client.notificationKey || this.auth.notificationKey);
+        for (const [key, value] of Object.entries(extras || {})) {
+            add(key, value);
+        }
 
         const response = await this.post(REFRESH_ENDPOINT, params, false, httpErrorAsError, {
             skipAuthHeader: true,
             includeHeaders: true,
         });
-        const body = response?.body ?? response;
-        if (!body || typeof body !== 'object') {
-            return body;
+        if (!response) return null;
+        const rawBody = response?.body ?? response;
+        if (!rawBody || typeof rawBody !== 'object') {
+            return rawBody;
         }
+        const normalized = Object.assign({}, rawBody);
         const headers = normalizeHeaderMap(response?.headers);
-        if (headers) body.headers = headers;
-        return Object.assign({}, body, { headers });
+        if (headers) normalized.headers = headers;
+        return normalized;
+    }
+
+    async passwordGrant(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
+        if (!this.hasCredentials()) {
+            throw new Error('Blink credentials are required for OAuth password grant');
+        }
+        const extras = {
+            username: this.auth.email,
+            password: this.auth.password,
+        };
+        if (this.auth.pin) extras.pin = this.auth.pin;
+        if (this.auth.otp) {
+            extras.verification_code = this.auth.otp;
+            extras.two_factor_token = this.auth.otp;
+            extras.otp = this.auth.otp;
+        }
+        return await this._performOAuthGrant('password', client, httpErrorAsError, extras);
+    }
+
+    async refreshGrant(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
+        if (!this.refreshToken) throw new Error('Missing refresh token');
+        return await this._performOAuthGrant('refresh_token', client, httpErrorAsError, {
+            refresh_token: this.refreshToken,
+        });
+    }
+
+    async legacyAppLogin(client = DEFAULT_CLIENT_OPTIONS, httpErrorAsError = true) {
+        if (!this.hasCredentials()) {
+            throw new Error('Blink credentials are required for legacy login');
+        }
+        const payload = {
+            app_version: client.appVersion || DEFAULT_CLIENT_OPTIONS.appVersion,
+            client_name: client.name || DEFAULT_CLIENT_OPTIONS.name,
+            client_type: client.type || DEFAULT_CLIENT_OPTIONS.type,
+            device_identifier: client.device || DEFAULT_CLIENT_OPTIONS.device,
+            email: this.auth.email,
+            notification_key: client.notificationKey || this.auth.notificationKey,
+            os_version: client.os || DEFAULT_CLIENT_OPTIONS.os,
+            password: this.auth.password,
+            unique_id: this.auth.clientUUID,
+            locale: client.locale || DEFAULT_CLIENT_OPTIONS.locale,
+            time_zone: client.timeZone || DEFAULT_CLIENT_OPTIONS.timeZone,
+        };
+        if (this.auth.pin) payload.pin = this.auth.pin;
+        const response = await this.post('/api/v5/account/login', payload, false, httpErrorAsError, {
+            skipAuthHeader: true,
+            includeHeaders: true,
+        });
+        if (!response) return null;
+        const rawBody = response?.body ?? response;
+        if (!rawBody || typeof rawBody !== 'object') {
+            return rawBody;
+        }
+        const normalized = Object.assign({}, rawBody);
+        const headers = normalizeHeaderMap(response?.headers);
+        if (headers) normalized.headers = headers;
+        return normalized;
     }
 
     /**
