@@ -1,12 +1,9 @@
-          response_type: 'code',
-          scope,
-        });
 const { URLSearchParams } = require('url');
 const { HomebridgePluginUiServer } = require('@homebridge/plugin-ui-utils');
 const { log: sharedLog } = require('../src/log');
 
 const REFRESH_ENDPOINT = 'https://api.oauth.blink.com/oauth/refresh';
-const DEFAULT_SCOPE = 'client';
+const DEFAULT_SCOPE = 'client offline_access';
 const DEFAULT_CLIENT_ID = 'blink/com.immediasemi.ios.blink';
 const DEFAULT_CLIENT_SECRET = 'cBl6zzw1bYw3mjKwHnGXcgZEnKQS68EX';
 const IOS_UA = 'Blink/49.2 (iPhone; iOS 26.1; Scale/3.00)';
