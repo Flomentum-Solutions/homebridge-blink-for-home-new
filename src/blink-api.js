@@ -317,15 +317,27 @@ class BlinkAPI {
         {
             headers.Authorization = 'Bearer ' + this.token;
         }
-        
-        options = { method, headers };
-        if (payload) {
-            options.body = JSON.stringify(payload);
-            options.headers['Content-Type'] = 'application/json';
+        const { includeHeaders = false, headers: extraHeaders = {}, ...restOptions } = options || {};
+        const requestHeaders = Object.assign({}, headers, extraHeaders || {});
+        const requestOptions = {
+            ...restOptions,
+            method,
+            headers: requestHeaders,
+        };
+
+        if (payload !== null && payload !== undefined && requestOptions.body === undefined) {
+            requestOptions.body = JSON.stringify(payload);
+        }
+        if (payload !== null && payload !== undefined) {
+            const hasContentType = Object.keys(requestHeaders)
+                .some(key => key.toLowerCase() === 'content-type');
+            if (!hasContentType) {
+                requestHeaders['Content-Type'] = 'application/json';
+            }
         }
 
         log.info(`${method} ${targetPath} @${maxTTL}`);
-        log.debug(options);
+        log.debug(requestOptions);
         // Build the base URL:
         //  - absolute URLs pass through
         //  - tier_info must always hit the prod host regardless of shard
@@ -547,12 +559,14 @@ class BlinkAPI {
             hardware_id: this.auth.clientUUID
         };
 
-       // Restore the refresh token from the saved file
+        const storageBasePath = this.api?.user?.storagePath?.() ?? this.api?.user?.customStoragePath ?? null;
 
-        if (this.refresh_token === undefined)
+        // Restore the refresh token from the saved file
+
+        if (this.refresh_token === undefined && storageBasePath)
         {
-            const authPath = path.join(this.api.user.storagePath?.() ?? this.api.user.customStoragePath, AUTH_FILE);
-            let contents
+            const authPath = path.join(storageBasePath, AUTH_FILE);
+            let contents;
 
             try { contents = fs.readFileSync(authPath, {encoding: 'utf8'}) } catch (e){ console.log('readFileSync', e); };
 
@@ -592,9 +606,9 @@ class BlinkAPI {
             this.token = res.access_token;
             this.refresh_token = res.refresh_token
 
-            if (res.refresh_token)
+            if (res.refresh_token && storageBasePath)
             {
-                const authPath = path.join(this.api.user.storagePath?.() ?? this.api.user.customStoragePath, AUTH_FILE);
+                const authPath = path.join(storageBasePath, AUTH_FILE);
                 const authConfig = JSON.stringify({refresh_token: res.refresh_token});  // Only save the refresh token.
 
                 try { fs.writeFileSync(authPath, authConfig, {mode: 0o600}); } catch(e) { console.log('fsWriteFileSync', e); }
