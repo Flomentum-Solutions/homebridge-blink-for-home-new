@@ -323,12 +323,20 @@ BlinkCamera.UNSUPPORTED_BYTES = UNSUPPORTED_BYTES;
 class Blink {
     constructor(clientUUID, auth, statusPoll = STATUS_POLL, motionPoll = MOTION_POLL, snapshotRate = THUMBNAIL_TTL, api) {
 
+        let tokenCachePath = auth?.tokenCachePath ?? null;
+        if (!tokenCachePath) {
+            const storageRoot = api?.user?.storagePath?.() ?? api?.user?.customStoragePath ?? null;
+            if (storageRoot) {
+                tokenCachePath = path.join(storageRoot, 'blink-oauth.json');
+            }
+        }
+
         this.blinkAPI = new BlinkAPI(clientUUID, auth, api);
         this.statusPoll = statusPoll ?? STATUS_POLL;
         this.motionPoll = motionPoll ?? MOTION_POLL;
         this.snapshotRate = snapshotRate ?? THUMBNAIL_TTL;
         this._lockCache = new Map();
-        this._oauthCachePath = tokenCachePath || null;
+        this._oauthCachePath = tokenCachePath;
         this._oauthBundleLoaded = false;
     }
 
