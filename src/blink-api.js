@@ -47,7 +47,7 @@ const DEFAULT_CLIENT_OPTIONS = {
     locale: 'en_US',
     timeZone: 'America/New_York',
     oauthScope: 'client offline_access',
-    oauthClientId: 'blink/com.immediasemi.ios.blink',
+    oauthClientId: 'ios',
     oauthClientSecret: 'cBl6zzw1bYw3mjKwHnGXcgZEnKQS68EX',
     hardwareId: DEFAULT_BLINK_CLIENT_UUID,
 };
