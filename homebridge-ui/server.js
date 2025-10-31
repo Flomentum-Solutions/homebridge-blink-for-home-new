@@ -131,6 +131,9 @@ class PluginUiServer extends HomebridgePluginUiServer {
 
         const protocol = this.normalizeProtocol(payload.redirectProtocol);
         const host = payload.redirectHost || 'localhost';
+        // store for URL building and relay rewriting
+        const publicHost = host;
+        const publicProtocol = protocol;
 
         const hardwareId = payload.hardwareId || crypto.randomUUID();
         const clientId = 'ios';
@@ -158,13 +161,16 @@ class PluginUiServer extends HomebridgePluginUiServer {
 
         this.sessions.set(sessionId, session);
 
-        // find free port & spin listener
-        await this.startCallbackServer(session, requestedPort);
+        // Bind to all interfaces so remote browsers (e.g., 192.168.1.100) can reach us
+        await this.startCallbackServer(session, requestedPort, '0.0.0.0');
+        // record what host/protocol to publish in URLs
+        session.publicHost = publicHost;
+        session.publicProtocol = publicProtocol;
 
         // Now that session.callbackPort is set:
         const actualPort = session.callbackPort;
-        const redirectUri = `${protocol}//${host}:${session.callbackPort}${CALLBACK_PATH}`;
-        const localProxyUrl = `${protocol}//${host}:${session.callbackPort}/blink/proxy-signin`;
+        const redirectUri = `${session.publicProtocol}//${session.publicHost}:${actualPort}${CALLBACK_PATH}`;
+        const localProxyUrl = `${session.publicProtocol}//${session.publicHost}:${actualPort}/blink/proxy-signin`;
         session.redirectUri = redirectUri;
         this.log.debug(`Using redirect URI for session ${sessionId}: ${redirectUri}`);
 
@@ -314,7 +320,7 @@ class PluginUiServer extends HomebridgePluginUiServer {
     // Relay handler: Proxies OAuth requests and rewrites redirects and HTML so the browser never needs Blink cookies.
     async handleBlinkRelay(session, req, res) {
         try {
-            const localBase = `${this.normalizeProtocol('http:')}//127.0.0.1:${session.callbackPort}`;
+            const localBase = `${session.publicProtocol || this.normalizeProtocol('http:')}//${session.publicHost || 'localhost'}:${session.callbackPort}`;
             const originalUrl = new URL(req.url, localBase);
             // Map /blink/relay/<path> -> https://api.oauth.blink.com/<path>
             const relayPath = originalUrl.pathname.replace(/^\/blink\/relay\//, '');
@@ -410,7 +416,7 @@ class PluginUiServer extends HomebridgePluginUiServer {
             });
 
             let body = await blinkRes.text();
-            const localBase = `${this.normalizeProtocol('http:')}//127.0.0.1:${session.callbackPort}`;
+            const localBase = `${session.publicProtocol || this.normalizeProtocol('http:')}//${session.publicHost || 'localhost'}:${session.callbackPort}`;
             if ((blinkRes.headers.get('content-type') || '').includes('text/html')) {
                 body = this.rewriteBlinkHtml(body, localBase);
                 res.writeHead(blinkRes.status, { 'Content-Type': 'text/html' });
@@ -426,8 +432,8 @@ class PluginUiServer extends HomebridgePluginUiServer {
         }
     }
 
-    async startCallbackServer(session, requestedPort) {
-        const host = '127.0.0.1';
+    async startCallbackServer(session, requestedPort, bindHost = '127.0.0.1') {
+        const host = bindHost;
         let port = Number(requestedPort || 52888);
 
         this.log.info(`Attempting to start callback server for session ${session.id} starting at port ${port}`);
@@ -465,7 +471,8 @@ class PluginUiServer extends HomebridgePluginUiServer {
         }
         session.server = server;
         session.callbackPort = port;
-        this.log.debug(`Callback server listening on ${host}:${port}`);
+        session.bindHost = host;
+        this.log.info(`Callback server listening on ${host}:${port} (public: ${session.publicProtocol || 'http:'}//${session.publicHost || 'localhost'}:${port})`);
     }
 
     async handleCallbackRequest(sessionId, req, res) {
