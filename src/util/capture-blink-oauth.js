@@ -56,4 +56,4 @@ captureBlinkLogin(authUrl).catch(err => {
 });
 
 // Run with: node capture-blink-oauth.js "THE_AUTH_URL_HERE"
-// Example auth URL: 
+// Example auth URL: https://api.oauth.blink.com/oauth/v2/signin?response_type=code&client_id=ios&redirect_uri=http%3A%2F%2F192.0.1.1%3A52888%2Fblink%2Foauth%2Fcallback&scope=client&state=b41a93a656ec78cf519e2f82ceef9848&code_challenge=QdGlfy1JHreCQsuflVmLRhZdxrZBrry5jXMGH3NKjno&code_challenge_method=S256&app-brand=blink&app-version=49.2&device-brand=Apple&device-model=iPhone18%2C1&device-os-version=26.1&dark-mode=default&entry_source=default&language=en

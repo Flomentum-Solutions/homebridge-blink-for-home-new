@@ -124,8 +124,6 @@ class PluginUiServer extends HomebridgePluginUiServer {
     }
 
     async handleOAuthStart(payload = {}) {
-        this.setLogLevel(payload.logging);
-
         const requestedPort = Number(payload.redirectPort || 52888);
         if (!Number.isInteger(requestedPort) || requestedPort < 1025 || requestedPort > 65535) {
             throw new Error('Redirect port must be between 1025 and 65535.');
@@ -138,13 +136,12 @@ class PluginUiServer extends HomebridgePluginUiServer {
         const clientId = 'ios';
         const scope = 'client';
         const sessionId = crypto.randomUUID();
-        const state = crypto.randomBytes(16).toString('hex');
+        // const state = crypto.randomBytes(16).toString('hex');
         const codeVerifier = this.buildCodeVerifier();
         const codeChallenge = this.buildCodeChallenge(codeVerifier);
 
         const session = {
           id: sessionId,
-          state,
           codeVerifier,
           clientId,
           scope,
@@ -166,31 +163,72 @@ class PluginUiServer extends HomebridgePluginUiServer {
 
         // Now that session.callbackPort is set:
         const actualPort = session.callbackPort;
-        const redirectUri = `${protocol}//${host}:${actualPort}${CALLBACK_PATH}`;
+        const redirectUri = `${protocol}//${host}:${session.callbackPort}${CALLBACK_PATH}`;
+        const localProxyUrl = `${protocol}//${host}:${session.callbackPort}/blink/proxy-signin`;
         session.redirectUri = redirectUri;
-        this.log.debug(`Using redirect URI: ${redirectUri}`);
+        this.log.debug(`Using redirect URI for session ${sessionId}: ${redirectUri}`);
 
-        const query = new URLSearchParams({
-            // Standard OAuth / PKCE
-            response_type: 'code',
-            client_id: clientId,              // 'ios'
-            redirect_uri: redirectUri,
-            scope,
-            state,
+        // Authorize first to get cookies as this is what Blink considers preconditioning
+        // Without this step, the login page is disabled
+        const authorizeParams = new URLSearchParams({
+            app_brand: 'blink',
+            app_version: '49.2',
+            client_id: clientId,
             code_challenge: codeChallenge,
             code_challenge_method: 'S256',
+            device_brand: 'Apple',
+            device_model: 'iPhone18,1',
+            device_os_version: '26.1',
+            hardware_id: hardwareId,
+            redirect_uri: redirectUri,
+            response_type: 'code',
+            scope,
+        });
 
-            // Blink expects these EXACT hyphen-cased keys on /signin:
-            'app-brand': 'blink',
-            'app-version': '49.2',
-            'device-brand': 'Apple',
-            'device-model': 'iPhone18,1',
-            'device-os-version': '26.1',
+        const authorizeUrl = `${OAUTH_AUTHORIZE_URL}?${authorizeParams.toString()}`;
+        const res = await fetch(authorizeUrl, {
+        method: 'GET',
+        headers: {
+            'User-Agent': 'Blink/49.2 (iPhone; iOS 26.1; Scale/3.00)',
+            'Accept': 'text/html,application/xhtml+xml',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://api.oauth.blink.com',
+            'Referer': 'https://api.oauth.blink.com/',
+        },
+        });
+        const setCookie = res.headers.get('set-cookie') || '';
+        const csrfToken = setCookie.match(/csrf-protection=([^;]+)/)?.[1];
+        const blinkSession = setCookie.match(/blink-session=([^;]+)/)?.[1];
+        const blinkPublic = setCookie.match(/blink-public-session=([^;]+)/)?.[1];
+        const blinkCookie = setCookie.match(/blink-cookie-allowed=([^;]+)/)?.[1];
 
-            // Optional but seen in oauth-args; safe defaults:
-            'dark-mode': 'default',
-            'entry_source': 'default',
-            language: 'en'
+        session.bootstrapCookies = [
+        `csrf-protection=${csrfToken}`,
+        `blink-session=${blinkSession}`,
+        `blink-public-session=${blinkPublic}`,
+        `blink-cookie-allowed=${blinkCookie}`,
+        ].filter(Boolean);
+        session.csrfToken = csrfToken;
+
+        // Then build query using redirectUri and the cookies obtained
+        const query = new URLSearchParams({
+            app_brand: 'blink',
+            app_version: '49.2',
+            client_id: clientId,
+            code_challenge: codeChallenge,
+            code_challenge_method: 'S256',
+            device_brand: 'Apple',
+            device_model: 'iPhone18,1',
+            device_os_version: '26.1',
+            entry_source: "default",
+            "greco-enabled": false,
+            "ip-country": "US",
+            language: "en",
+            "csrf-token": csrfToken,
+            hardware_id: hardwareId,
+            redirect_uri: redirectUri,
+            response_type: 'code',
+            scope,
         });
 
         const authUrl = `${OAUTH_SIGNIN_URL}?${query.toString()}`;
@@ -198,7 +236,7 @@ class PluginUiServer extends HomebridgePluginUiServer {
 
         session.timeout = setTimeout(() => this.failSession(sessionId, 'Timed out waiting for Blink OAuth callback.'), SESSION_TTL_MS);
 
-        return { sessionId, authUrl, hardwareId };
+        return { sessionId, authUrl: localProxyUrl, hardwareId };
     }
 
     async handleOAuthStatus(payload = {}) {
@@ -259,6 +297,45 @@ class PluginUiServer extends HomebridgePluginUiServer {
         return crypto.createHash('sha256').update(verifier).digest('base64url');
     }
 
+    async handleSigninProxy(session, req, res) {
+        try {
+            const signinParams = new URLSearchParams({
+            response_type: 'code',
+            client_id: session.clientId,
+            redirect_uri: session.redirectUri,
+            scope: session.scope,
+            code_challenge: this.buildCodeChallenge(session.codeVerifier),
+            code_challenge_method: 'S256',
+            hardware_id: session.hardwareId,
+            "csrf-token": session.csrfToken,
+            app_brand: 'blink',
+            app_version: '49.2',
+            device_brand: 'Apple',
+            device_model: 'iPhone18,1',
+            device_os_version: '26.1',
+            });
+
+            const signinUrl = `${OAUTH_SIGNIN_URL}?${signinParams.toString()}`;
+            const cookieHeader = session.bootstrapCookies.join('; ');
+
+            const blinkRes = await fetch(signinUrl, {
+            headers: {
+                'User-Agent': 'Blink/49.2 (iPhone; iOS 26.1; Scale/3.00)',
+                'Cookie': cookieHeader,
+                'Accept': 'text/html',
+            },
+            });
+
+            const body = await blinkRes.text();
+            res.writeHead(blinkRes.status, { 'Content-Type': 'text/html' });
+            res.end(body);
+        } catch (err) {
+            this.log.error('Error in handleSigninProxy:', err);
+            res.writeHead(500);
+            res.end('Internal proxy error');
+        }
+    }
+
     async startCallbackServer(session, requestedPort) {
         const host = '127.0.0.1';
         let port = Number(requestedPort || 52888);
@@ -272,7 +349,14 @@ class PluginUiServer extends HomebridgePluginUiServer {
             throw err;
         }
 
-        const server = http.createServer((req, res) => this.handleCallbackRequest(session.id, req, res));
+        const server = http.createServer((req, res) => {
+            if (req.url.startsWith('/blink/proxy-signin')) {
+                this.handleSigninProxy(session, req, res);
+            } else {
+                this.handleCallbackRequest(session.id, req, res);
+            }
+        });
+
         try {
             await new Promise((resolve, reject) => {
             server.once('error', err => {
@@ -307,15 +391,7 @@ class PluginUiServer extends HomebridgePluginUiServer {
                 this.respond(res, 404, 'Not Found');
                 return;
             }
-
-            const returnedState = url.searchParams.get('state');
             const code = url.searchParams.get('code');
-            if (returnedState !== session.state) {
-                this.log.debug("State mismatch in Blink OAuth callback.", req.url);
-                this.failSession(sessionId, 'State mismatch in Blink OAuth callback.');
-                this.respond(res, 400, 'Blink OAuth failed: state mismatch. Close this tab and try again.');
-                return;
-            }
             if (!code) {
                 this.log.debug("Missing authorization code in Blink callback.", req.url);
                 this.failSession(sessionId, 'Missing authorization code in Blink callback.');

@@ -38,7 +38,8 @@
         "@homebridge/plugin-ui-utils": "^2.1.0",
         "bottleneck": "^2.19.5",
         "commander": "^9.1.0",
-        "homebridge-ui": "^0.0.0"
+        "homebridge-ui": "^0.0.0",
+        "puppeteer": "^24.27.0"
     },
     "devDependencies": {
         "@jest/globals": "^29",
