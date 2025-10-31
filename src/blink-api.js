@@ -204,6 +204,9 @@ class BlinkAPI {
                 crypto.randomBytes(32).toString('hex'),
         }, auth);
         this.api = api;
+        this._oauthBundle = null;
+        this._oauthHeaders = null;
+        this._clientOptions = null;
     }
 
     set region(val) {
@@ -228,6 +231,18 @@ class BlinkAPI {
 
     get refresh_token() {
         return this._refresh_token;
+    }
+
+    getOAuthBundle() {
+        if (!this.token) return null;
+        return {
+            access_token: this.token,
+            refresh_token: this.refreshToken,
+            expires_at: this.tokenExpiresAt || 0,
+            account_id: this.accountID,
+            client_id: this.clientID,
+            region: this.region,
+        };
     }
 
     set accountID(val) {
@@ -556,6 +571,7 @@ class BlinkAPI {
         if (!this.auth?.email || !this.auth?.password) throw new Error('Email or Password is blank');
 
         client = Object.assign({}, DEFAULT_CLIENT_OPTIONS, client || {});
+        this._clientOptions = client;
         const data = {
             username: this.auth.email,
             client_id: 'android',
@@ -600,7 +616,10 @@ class BlinkAPI {
             data['password']   = this.auth.password;
         }
 
-        const res = await this.post('https://api.oauth.blink.com/oauth/token', data, false, httpErrorAsError);
+        const response = await this.post('https://api.oauth.blink.com/oauth/token', data, false, httpErrorAsError,
+            { includeHeaders: true });
+        const res = response?.body ?? response;
+        const responseHeaders = response?.headers ?? null;
         if (/unauthorized|invalid/i.test(res?.message)) {
             throw new Error(res.message);
         }
@@ -639,7 +658,70 @@ class BlinkAPI {
                 }
             }
         }
+        const normalizedHeaders = responseHeaders
+            ? Object.fromEntries(Object.entries(responseHeaders).map(([key, value]) => [key.toLowerCase(), value]))
+            : null;
+        const scope = res.scope || data.scope || client.oauthScope;
+        const tokenType = res.token_type || normalizedHeaders?.['token-type'] || normalizedHeaders?.['token_type'] || 'Bearer';
+        const hardwareId = this.auth?.hardwareId || this.auth?.clientUUID || client.hardwareId || DEFAULT_BLINK_CLIENT_UUID;
+        const accountId = res.account?.account_id ?? res.account_id ?? this.accountID ?? null;
+        const clientId = res.account?.client_id ?? res.client_id ?? this.clientID ?? null;
+        const region = res.account?.tier ?? res.region ?? this.region ?? null;
+        const sessionId = res.session_id ?? normalizedHeaders?.['session-id'] ?? normalizedHeaders?.['session_id'] ?? null;
+
+        this._oauthHeaders = normalizedHeaders ? { ...normalizedHeaders } : null;
+        this._oauthBundle = {
+            access_token: this.token,
+            refresh_token: this.refresh_token,
+            token_type: tokenType,
+            scope,
+            expires_in: res.expires_in ?? res.expires_at ?? null,
+            account_id: accountId,
+            client_id: clientId,
+            region,
+            hardware_id: hardwareId,
+            session_id: sessionId,
+            user_id: res.account?.user_id ?? res.user_id ?? null,
+            headers: this._oauthHeaders ? { ...this._oauthHeaders } : null,
+        };
+
+        if (normalizedHeaders) {
+            res.token_headers = { ...normalizedHeaders };
+        }
+
         return res;
+    }
+
+    getOAuthBundle() {
+        if (this._oauthBundle) {
+            const bundle = {
+                ...this._oauthBundle,
+                headers: this._oauthBundle.headers ? { ...this._oauthBundle.headers } : null,
+            };
+            if (!bundle.account_id && this.accountID) bundle.account_id = this.accountID;
+            if (!bundle.client_id && this.clientID) bundle.client_id = this.clientID;
+            if (!bundle.region && this.region) bundle.region = this.region;
+            if (!bundle.hardware_id) {
+                bundle.hardware_id = this.auth?.hardwareId || this.auth?.clientUUID || DEFAULT_BLINK_CLIENT_UUID;
+            }
+            return bundle;
+        }
+
+        if (!this.token) return null;
+
+        const fallback = {
+            access_token: this.token,
+            refresh_token: this.refresh_token,
+            token_type: 'Bearer',
+            scope: this._clientOptions?.oauthScope || DEFAULT_CLIENT_OPTIONS.oauthScope,
+            account_id: this.accountID ?? null,
+            client_id: this.clientID ?? null,
+            region: this.region ?? null,
+            hardware_id: this.auth?.hardwareId || this.auth?.clientUUID || DEFAULT_BLINK_CLIENT_UUID,
+            headers: this._oauthHeaders ? { ...this._oauthHeaders } : null,
+        };
+
+        return fallback;
     }
 
     /**
