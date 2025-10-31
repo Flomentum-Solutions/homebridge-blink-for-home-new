@@ -186,7 +186,8 @@ class PluginUiServer extends HomebridgePluginUiServer {
             device_os_version: '26.1',
         });
 
-        const authUrl = `${OAUTH_AUTHORIZE_URL}?${query.toString()}`;
+        const authUrl = `${OAUTH_SIGNIN_URL}?${query.toString()}`;
+
         this.log.debug("Constructed Auth URL: ", authUrl);
 
         session.timeout = setTimeout(() => this.failSession(sessionId, 'Timed out waiting for Blink OAuth callback.'), SESSION_TTL_MS);
