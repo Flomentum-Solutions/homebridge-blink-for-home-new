@@ -181,7 +181,7 @@
             tokenScope: strOrEmpty(tokens.scope ?? fallback.tokenScope ?? state.config.tokenScope ?? ''),
             tokenType: strOrEmpty(tokens.token_type ?? fallback.tokenType ?? state.config.tokenType ?? ''),
             sessionId: strOrEmpty(tokens.session_id ?? fallback.sessionId ?? state.config.sessionId ?? headerLookup('session-id') ?? ''),
-            oauthClientId: strOrEmpty(tokens.oauth_client_id ?? fallback.oauthClientId ?? state.config.oauthClientId ?? ''),
+            oauthClientId: strOrEmpty(tokens.oauth_client_id ?? fallback.oauthClientId ?? headerLookup('oauth-client-id') ?? state.config.oauthClientId ?? ''),
             tokenHeaders: tokens.headers
                 ? { ...tokens.headers }
                 : (fallback.tokenHeaders ?? state.config.tokenHeaders ?? null),

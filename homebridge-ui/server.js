@@ -8,6 +8,7 @@ const REFRESH_ENDPOINT = 'https://api.oauth.blink.com/oauth/token';
 const DEFAULT_SCOPE = 'client offline_access';
 const DEFAULT_CLIENT_ID = 'ios';
 const DEFAULT_CLIENT_SECRET = 'cBl6zzw1bYw3mjKwHnGXcgZEnKQS68EX';
+const ANDROID_CLIENT_ID = 'android';
 const IOS_UA = 'Blink/49.2 (iPhone; iOS 26.1; Scale/3.00)';
 const IOS_HEADERS = {
     'User-Agent': IOS_UA,
@@ -196,9 +197,9 @@ class PluginUiServer extends HomebridgePluginUiServer {
 
         if (requestedClientId) {
             addAttempt(requestedClientId, resolveSecret(requestedClientId, requestedClientSecret), 'requested-client');
-        } else {
-            addAttempt(DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET, 'default-client');
         }
+        addAttempt(ANDROID_CLIENT_ID, null, 'android-client');
+        addAttempt(DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET, 'default-client');
 
         let lastError = null;
         for (const attempt of attempts) {

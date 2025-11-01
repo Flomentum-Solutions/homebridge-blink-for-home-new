@@ -578,6 +578,8 @@ class BlinkAPI {
             scope: 'client',
             hardware_id: this.auth.clientUUID
         };
+        const oauthClientId = data.client_id || client.oauthClientId || 'android';
+        client.oauthClientId = oauthClientId;
 
         const storageBasePath = this.api?.user?.storagePath?.() ?? this.api?.user?.customStoragePath ?? null;
 
@@ -688,6 +690,7 @@ class BlinkAPI {
             hardware_id: hardwareId,
             session_id: sessionId,
             user_id: res.account?.user_id ?? res.user_id ?? null,
+            oauth_client_id: oauthClientId,
             headers: this._oauthHeaders ? { ...this._oauthHeaders } : null,
         };
 
