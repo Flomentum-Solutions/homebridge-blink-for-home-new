@@ -68,6 +68,24 @@ class BlinkDevice {
     set data(newInfo) {
         this._data = newInfo instanceof BlinkDevice ? newInfo.data : newInfo;
         if (this.context) this.context.data = this._data;
+        this._refreshIdentifierCache();
+    }
+
+    _refreshIdentifierCache() {
+        this._networkID = this._data?.network_id || this._data?.id || null;
+        this._canonicalID = this._networkID ? `Blink:Device:${this._networkID}` : null;
+    }
+
+    get networkID() {
+        if (this._networkID) return this._networkID;
+        this._refreshIdentifierCache();
+        return this._networkID;
+    }
+
+    get canonicalID() {
+        if (this._canonicalID) return this._canonicalID;
+        this._refreshIdentifierCache();
+        return this._canonicalID;
     }
 }
 
