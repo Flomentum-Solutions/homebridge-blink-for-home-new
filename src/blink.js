@@ -196,11 +196,13 @@ class BlinkCamera extends BlinkDevice {
     }
 
     get status() {
-        return this.data.status && this.data.status !== 'done' ? this.data.status : this.network.status;
+        const data = this.data;
+        return data?.status && data.status !== 'done' ? data.status : this.network.status;
     }
 
     get online() {
-        return ['online', 'done'].includes(this.data.status) && (this.isCameraMini || this.network.online);
+        const data = this.data;
+        return ['online', 'done'].includes(data?.status) && (this.isCameraMini || this.network.online);
     }
 
     get armed() {
@@ -208,11 +210,12 @@ class BlinkCamera extends BlinkDevice {
     }
 
     get enabled() {
-        return Boolean(this.data.enabled);
+        return Boolean(this.data?.enabled);
     }
 
     get thumbnail() {
-        return this.data.thumbnail;
+        const data = this.data;
+        return data?.thumbnail ?? this.context?.thumbnail ?? null;
     }
 
     get network() {
@@ -228,30 +231,51 @@ class BlinkCamera extends BlinkDevice {
     }
 
     get thumbnailCreatedAt() {
-        // we store it on the .data object to it will be auto scrubbed on the next data poll
-        if (this.data.thumbnail_created_at) return this.data.thumbnail_created_at;
+        const data = this.data;
+        const stored = data?.thumbnail_created_at ?? this.context?.thumbnail_created_at;
+        if (stored !== undefined && stored !== null) {
+            if (typeof stored === 'number' && Number.isFinite(stored)) return stored;
+            const numericStored = Number(stored);
+            if (Number.isFinite(numericStored)) return numericStored;
+            const parsedStored = Date.parse(stored);
+            if (Number.isFinite(parsedStored)) return parsedStored;
+        }
+
+        const thumbnailUrl = this.thumbnail;
+        if (!thumbnailUrl) return 0;
 
         const dateRegex = /(\d{4})_(\d\d)_(\d\d)__(\d\d)_(\d\d)(?:am|pm)?$|[?&]ts=(\d+)(?:&|$)/i;
-        const [, year, month, day, hour, minute, epoch] = dateRegex.exec(this.thumbnail) || [];
+        const match = dateRegex.exec(thumbnailUrl) || [];
+        const [, year, month, day, hour, minute, epoch] = match;
+
+        let parsed = 0;
         if (epoch) {
-            this.thumbnailCreatedAt = Date.parse(new Date(Number(epoch.padEnd(13, '0'))).toISOString());
+            const millis = Number(`${epoch}`.padEnd(13, '0'));
+            parsed = Number.isFinite(millis) ? millis : Date.now();
         }
-        else {
-            this.thumbnailCreatedAt = Date.parse(`${year}-${month}-${day} ${hour}:${minute} +000`) || Date.now();
+        else if (year && month && day && hour && minute) {
+            parsed = Date.parse(`${year}-${month}-${day} ${hour}:${minute} +000`) || Date.now();
         }
-        return this.data.thumbnail_created_at;
+
+        this.thumbnailCreatedAt = parsed;
+        return parsed;
     }
 
     set thumbnailCreatedAt(val) {
-        this.data.thumbnail_created_at = val;
+        const value = Number(val) || 0;
+        const data = this.data;
+        if (data) data.thumbnail_created_at = value;
+        if (this.context) this.context.thumbnail_created_at = value;
     }
 
     get isBatteryPower() {
-        return (this.data.battery !== undefined);
+        const data = this.data;
+        return data ? (data.battery !== undefined) : false;
     }
 
     get lowBattery() {
-        return this.isBatteryPower ? (this.data.battery === 'low') : null;
+        const data = this.data;
+        return this.isBatteryPower ? (data?.battery === 'low') : null;
     }
 
     get isCameraMini() {
