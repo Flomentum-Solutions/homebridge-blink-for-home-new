@@ -202,6 +202,10 @@ class BlinkDeviceHAP extends BlinkDevice {
     }
 
     createAccessory(hapAPI, cachedAccessories = [], category = null) {
+        if (!this.data) {
+            log.warn(`${this.name} - Skipping accessory registration because device data is unavailable.`);
+            return this;
+        }
         if (this.accessory) return this;
 
         log('ADD: ' + this.canonicalID);
@@ -225,6 +229,11 @@ class BlinkDeviceHAP extends BlinkDevice {
             this.accessory.context = Object.assign(this.accessory.context, context);
         }
         this.context = this.accessory.context;
+        this.context.serial = this.serial || this.context.serial;
+        this.context.firmware = this.firmware || this.context.firmware;
+        this.context.model = this.model || this.context.model;
+        this.context.updated_at = this.data?.updated_at || this.context.updated_at;
+        if (typeof this._refreshCameraCache === 'function') this._refreshCameraCache();
         return this;
     }
 }

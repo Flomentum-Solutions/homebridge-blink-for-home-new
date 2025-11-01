@@ -39,19 +39,20 @@ class BlinkDevice {
     }
 
     get serial() {
-        return this.data.serial;
+        return this.data?.serial ?? this.context?.serial ?? null;
     }
 
     get firmware() {
-        return this.data.fw_version;
+        return this.data?.fw_version ?? this.context?.firmware ?? null;
     }
 
     get model() {
-        return this.data.type;
+        return this.data?.type ?? this.context?.model ?? null;
     }
 
     get updatedAt() {
-        return Date.parse(this.data.updated_at) || 0;
+        const raw = this.data?.updated_at ?? this.context?.updated_at ?? null;
+        return raw ? (Date.parse(raw) || 0) : 0;
     }
 
     get context() {
@@ -59,6 +60,7 @@ class BlinkDevice {
     }
     set context(val) {
         this._context = val;
+        this._refreshIdentifierCache();
     }
 
     get data() {
@@ -72,8 +74,11 @@ class BlinkDevice {
     }
 
     _refreshIdentifierCache() {
-        this._networkID = this._data?.network_id || this._data?.id || null;
-        this._canonicalID = this._networkID ? `Blink:Device:${this._networkID}` : null;
+        if (!this._data && this.context?.data) this._data = this.context.data;
+        if (!this._data) return;
+        this._networkID = this._data.network_id || this._data.id || this.context?.networkID || null;
+        if (this._networkID) this.context.networkID = this._networkID;
+        this._canonicalID = this._networkID ? `Blink:Device:${this._networkID}` : this._canonicalID || null;
     }
 
     get networkID() {
@@ -171,7 +176,9 @@ class BlinkCamera extends BlinkDevice {
     }
 
     _refreshCameraCache() {
-        this._cameraID = this._data?.id ?? this._cameraID ?? this.context?.cameraID ?? null;
+        if (!this._data && this.context?.data) this._data = this.context.data;
+        if (!this._data) return;
+        this._cameraID = this._data.id ?? this._cameraID ?? this.context?.cameraID ?? null;
         if (this._cameraID) this.context.cameraID = this._cameraID;
         super._refreshIdentifierCache();
     }
