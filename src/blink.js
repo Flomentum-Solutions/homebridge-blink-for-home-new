@@ -165,12 +165,27 @@ class BlinkCamera extends BlinkDevice {
         this.cacheThumbnail = new Map();
     }
 
+    set data(newInfo) {
+        super.data = newInfo;
+        this._refreshCameraCache();
+    }
+
+    _refreshCameraCache() {
+        this._cameraID = this._data?.id ?? this._cameraID ?? this.context?.cameraID ?? null;
+        if (this._cameraID) this.context.cameraID = this._cameraID;
+        super._refreshIdentifierCache();
+    }
+
     get cameraID() {
-        return this.data.id;
+        if (this._cameraID) return this._cameraID;
+        this._refreshCameraCache();
+        return this._cameraID;
     }
 
     get canonicalID() {
-        return `Blink:Network:${this.networkID}:Camera:${this.cameraID}`;
+        const networkID = this.networkID ?? 'UnknownNetwork';
+        const cameraID = this.cameraID ?? this.serial ?? 'UnknownCamera';
+        return `Blink:Network:${networkID}:Camera:${cameraID}`;
     }
 
     get status() {
