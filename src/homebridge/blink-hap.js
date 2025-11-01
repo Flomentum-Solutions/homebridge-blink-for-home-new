@@ -396,6 +396,10 @@ class BlinkCameraHAP extends BlinkCamera {
     createAccessory(hapAPI, cachedAccessories = []) {
         if (this.accessory) return this;
         super.createAccessory(hapAPI, cachedAccessories, Categories.CAMERA);
+        if (!this.accessory) {
+            log.warn(`${this.name} - Skipping camera accessory setup because accessory instance is missing.`);
+            return this;
+        }
 
         this.accessory.configureController(this.controller);
         // this.accessory.activeCameraController = cameraDelegate.controller;
