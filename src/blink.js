@@ -838,34 +838,38 @@ class Blink {
 
         const status = await Promise.all(cameras.map(async camera => {
             const ttl = force ? 500 : (this.snapshotRate * 1000);
-            const lastSnapshot = camera.thumbnailCreatedAt + ttl;
-            const eligible = force || (camera.armed && camera.enabled);
+            const nextEligibleAt = camera.thumbnailCreatedAt + ttl;
+            const privacyEnabled = Boolean(camera.privacyMode);
 
-            if (eligible && Date.now() >= lastSnapshot) {
-                if (camera.lowBattery || !camera.online) {
-                    log(`${camera.name} - ${!camera.online ? 'Offline' : 'Low Battery'}; Skipping snapshot`);
-                    return false;
-                }
-
-                // set the thumbnail to the future to avoid pile-ons
-                camera.thumbnailCreatedAt = Date.now();
-                const networkID = camera.networkID;
-                const cameraID = camera.cameraID;
-                log(`${camera.name} - Refreshing snapshot`);
-                let updateCamera = this.blinkAPI.updateCameraThumbnail;
-                if (camera.isCameraMini) updateCamera = this.blinkAPI.updateOwlThumbnail;
-
-                // this is an overly complicated nesting, but we have the tree of:
-                // lock --> update camera --> poll command
-                // TODO: organize this better. Perhaps auto check on the _command call? or implement in the blink api?
-                const updateCameraPromise = async () => updateCamera.call(this.blinkAPI, networkID, cameraID);
-                const commandPromise = async () => this._command(networkID, updateCameraPromise);
-                // only run once, attach to another request if it is inflight
-                await this._lock(`refreshCameraThumbnail(${networkID}, ${cameraID})`, commandPromise);
-
-                return true; // we updated a camera
+            if (privacyEnabled) {
+                log(`${camera.name} - Privacy mode enabled; skipping snapshot refresh.`);
+                return false;
             }
-            return false;
+
+            if (!force && Date.now() < nextEligibleAt) return false;
+
+            if (camera.lowBattery || !camera.online) {
+                log(`${camera.name} - ${!camera.online ? 'Offline' : 'Low Battery'}; skipping snapshot refresh.`);
+                return false;
+            }
+
+            // set the thumbnail to the future to avoid pile-ons
+            camera.thumbnailCreatedAt = Date.now();
+            const networkID = camera.networkID;
+            const cameraID = camera.cameraID;
+            log(`${camera.name} - Refreshing snapshot`);
+            let updateCamera = this.blinkAPI.updateCameraThumbnail;
+            if (camera.isCameraMini) updateCamera = this.blinkAPI.updateOwlThumbnail;
+
+            // this is an overly complicated nesting, but we have the tree of:
+            // lock --> update camera --> poll command
+            // TODO: organize this better. Perhaps auto check on the _command call? or implement in the blink api?
+            const updateCameraPromise = async () => updateCamera.call(this.blinkAPI, networkID, cameraID);
+            const commandPromise = async () => this._command(networkID, updateCameraPromise);
+            // only run once, attach to another request if it is inflight
+            await this._lock(`refreshCameraThumbnail(${networkID}, ${cameraID})`, commandPromise);
+
+            return true; // we updated a camera
         }));
 
         // only refresh the root data if we tripped any of the thumbnails to refresh
