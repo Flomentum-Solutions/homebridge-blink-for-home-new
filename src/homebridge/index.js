@@ -116,8 +116,8 @@ class HomebridgeBlink {
             this.poll()
         }
 
-        // await this.blink.refreshCameraThumbnail();
         try {
+            // await this.blink.refreshCameraThumbnail();
             await this.blink.refreshData()
         } catch (err) {
             this.log.error(err)
@@ -153,35 +153,7 @@ class HomebridgeBlink {
         )
 
         const { BlinkHAP } = require('./blink-hap')
-        const blink = new BlinkHAP(clientUUID, auth, {
-            ...this.config,
-            tokenCachePath: oauthCachePath
-        })
-        blink.blinkAPI._clientOptions = Object.assign(
-            {},
-            blink.blinkAPI._clientOptions,
-            {
-                hardwareId: auth.hardwareId || blink.blinkAPI._clientOptions?.hardwareId,
-                oauthClientId: this.config.oauthClientId || blink.blinkAPI._clientOptions?.oauthClientId,
-                oauthScope: this.config.oauthScope || blink.blinkAPI._clientOptions?.oauthScope,
-            }
-        )
-        if (this.config.accessToken || this.config.refreshToken) {
-            blink.blinkAPI.useOAuthBundle({
-                access_token: this.config.accessToken,
-                refresh_token: this.config.refreshToken,
-                expires_at: this.config.tokenExpiresAt,
-                account_id: this.config.accountId,
-                client_id: this.config.clientId,
-                region: this.config.region,
-                scope: this.config.tokenScope,
-                token_type: this.config.tokenType,
-                session_id: this.config.sessionId,
-                hardware_id: this.config.hardwareId,
-                oauth_client_id: this.config.oauthClientId,
-                headers: this.config.tokenHeaders,
-            })
-        }
+        const blink = new BlinkHAP(clientUUID, auth, this.config, this.api)
         try {
             await blink.authenticate()
             await blink.refreshData()
