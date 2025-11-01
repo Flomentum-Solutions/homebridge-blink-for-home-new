@@ -117,7 +117,7 @@ class HomebridgeBlink {
         }
 
         try {
-            await this.blink.refreshCameraThumbnail();
+            // await this.blink.refreshCameraThumbnail();
             await this.blink.refreshData()
         } catch (err) {
             this.log.error(err)
