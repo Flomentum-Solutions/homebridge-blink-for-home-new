@@ -74,12 +74,20 @@
         expiryEl.textContent = state.config.tokenExpiresAt ? formatExpiry(state.config.tokenExpiresAt) : '—';
         hardwareSummaryEl.textContent = state.config.hardwareId || '—';
         accountEl.textContent = state.config.accountId ? `Account ${state.config.accountId}` : '—';
-        clientEl.textContent = state.config.clientId ? `Client ${state.config.clientId}` : '—';
+        const clientIdHeader = state.config.tokenHeaders?.['client-id']
+            ?? state.config.tokenHeaders?.['x-client-id']
+            ?? state.config.tokenHeaders?.['client_id'];
+        const effectiveClientId = state.config.clientId ?? clientIdHeader ?? '';
+        clientEl.textContent = effectiveClientId ? `Client ${effectiveClientId}` : '—';
         regionEl.textContent = state.config.region || '—';
         scopeEl.textContent = state.config.tokenScope || '—';
         typeEl.textContent = state.config.tokenType || '—';
         oauthClientEl.textContent = state.config.oauthClientId || '—';
-        sessionEl.textContent = state.config.sessionId || '—';
+        const sessionIdHeader = state.config.tokenHeaders?.['session-id']
+            ?? state.config.tokenHeaders?.['x-session-id']
+            ?? state.config.tokenHeaders?.['session_id'];
+        const effectiveSessionId = state.config.sessionId || sessionIdHeader || '';
+        sessionEl.textContent = effectiveSessionId || '—';
         if (headersToggle && headersDump && headersContainer) {
             const headerSummary = summariseHeaders(state.config.tokenHeaders);
             headersToggle.textContent = headerSummary.label;
@@ -152,17 +160,27 @@
 
     function normalizePersistPayload(tokens = {}, fallback = {}) {
         const strOrEmpty = value => (value === undefined || value === null ? '' : String(value).trim());
+        const headerSource = tokens.headers ?? fallback.tokenHeaders ?? state.config.tokenHeaders ?? {};
+        const headerLookup = key => {
+            if (!headerSource || typeof headerSource !== 'object') return undefined;
+            const lowered = String(key).toLowerCase();
+            for (const [headerKey, value] of Object.entries(headerSource)) {
+                if (headerKey.toLowerCase() === lowered) return value;
+            }
+            return undefined;
+        };
+
         return {
             hardwareId: strOrEmpty(tokens.hardware_id ?? fallback.hardwareId ?? state.config.hardwareId ?? ''),
             accessToken: strOrEmpty(tokens.access_token ?? fallback.accessToken ?? state.config.accessToken ?? ''),
             refreshToken: strOrEmpty(tokens.refresh_token ?? fallback.refreshToken ?? state.config.refreshToken ?? ''),
             tokenExpiresAt: tokens.expires_at ?? fallback.tokenExpiresAt ?? state.config.tokenExpiresAt ?? null,
-            accountId: tokens.account_id ?? fallback.accountId ?? state.config.accountId ?? null,
-            clientId: tokens.client_id ?? fallback.clientId ?? state.config.clientId ?? null,
+            accountId: tokens.account_id ?? fallback.accountId ?? state.config.accountId ?? headerLookup('account-id') ?? null,
+            clientId: tokens.client_id ?? fallback.clientId ?? state.config.clientId ?? headerLookup('client-id') ?? null,
             region: tokens.region ?? fallback.region ?? state.config.region ?? null,
             tokenScope: strOrEmpty(tokens.scope ?? fallback.tokenScope ?? state.config.tokenScope ?? ''),
             tokenType: strOrEmpty(tokens.token_type ?? fallback.tokenType ?? state.config.tokenType ?? ''),
-            sessionId: strOrEmpty(tokens.session_id ?? fallback.sessionId ?? state.config.sessionId ?? ''),
+            sessionId: strOrEmpty(tokens.session_id ?? fallback.sessionId ?? state.config.sessionId ?? headerLookup('session-id') ?? ''),
             oauthClientId: strOrEmpty(tokens.oauth_client_id ?? fallback.oauthClientId ?? state.config.oauthClientId ?? ''),
             tokenHeaders: tokens.headers
                 ? { ...tokens.headers }

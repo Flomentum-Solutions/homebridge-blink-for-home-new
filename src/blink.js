@@ -6,7 +6,7 @@ const path = require('path');
 const { stringify } = require('./stringify');
 // const stringify = JSON.stringify;
 
-const THUMBNAIL_TTL = 60 * 60; // 1min
+const THUMBNAIL_TTL = 45; // seconds between thumbnail refresh attempts
 const BATTERY_TTL = 60 * 60; // 60min
 const MOTION_POLL = 15;
 const STATUS_POLL = 30;
