@@ -330,6 +330,9 @@ class Blink {
                 tokenCachePath = path.join(storageRoot, 'blink-oauth.json');
             }
         }
+        if (tokenCachePath && auth && typeof auth === 'object') {
+            auth.tokenCachePath = tokenCachePath;
+        }
 
         this.blinkAPI = new BlinkAPI(clientUUID, auth, api);
         this.statusPoll = statusPoll ?? STATUS_POLL;
@@ -568,6 +571,153 @@ class Blink {
         }
 
         log('====== END BLINK DEBUG ======');
+    }
+
+    async _loadOAuthBundle() {
+        if (this._oauthBundleLoaded) return;
+
+        const merged = {};
+        const coerceString = value => {
+            if (value === undefined || value === null) return null;
+            const str = String(value).trim();
+            if (!str.length) return null;
+            const lowered = str.toLowerCase();
+            if (lowered === 'null' || lowered === 'undefined') return null;
+            return str;
+        };
+        const coerceNumber = value => {
+            if (value === undefined || value === null || value === '') return null;
+            const num = Number(value);
+            return Number.isFinite(num) ? num : null;
+        };
+        const normalizeCandidate = candidate => {
+            if (!candidate || typeof candidate !== 'object') return null;
+            const read = (...keys) => {
+                for (const key of keys) {
+                    if (key in candidate) return candidate[key];
+                }
+                return undefined;
+            };
+            const normalized = {};
+            const assign = (targetKey, transform, ...keys) => {
+                const raw = read(...keys);
+                if (raw === undefined) return;
+                const value = transform ? transform(raw) : raw;
+                if (value === undefined || value === null || value === '') return;
+                normalized[targetKey] = value;
+            };
+
+            assign('access_token', coerceString, 'access_token', 'accessToken');
+            assign('refresh_token', coerceString, 'refresh_token', 'refreshToken');
+            assign('expires_at', value => {
+                const explicit = coerceNumber(value);
+                if (explicit) return explicit;
+                return null;
+            }, 'expires_at', 'tokenExpiresAt');
+            assign('expires_in', coerceNumber, 'expires_in', 'tokenExpiresIn');
+            assign('account_id', coerceNumber, 'account_id', 'accountId');
+            assign('client_id', coerceNumber, 'client_id', 'clientId');
+            assign('region', coerceString, 'region');
+            assign('scope', coerceString, 'scope', 'tokenScope');
+            assign('token_type', coerceString, 'token_type', 'tokenType');
+            assign('session_id', coerceString, 'session_id', 'sessionId');
+            assign('hardware_id', coerceString, 'hardware_id', 'hardwareId');
+            assign('oauth_client_id', coerceString, 'oauth_client_id', 'oauthClientId');
+            assign('headers', value => {
+                if (value && typeof value === 'object') {
+                    return { ...value };
+                }
+                return null;
+            }, 'headers', 'tokenHeaders');
+            return normalized;
+        };
+        const mergeCandidate = candidate => {
+            if (!candidate) return;
+            for (const [key, value] of Object.entries(candidate)) {
+                if (value === undefined || value === null || value === '') continue;
+                if (merged[key] === undefined || merged[key] === null || merged[key] === '') {
+                    merged[key] = value;
+                }
+            }
+        };
+
+        mergeCandidate(normalizeCandidate(this.config));
+
+        if (this._oauthCachePath) {
+            try {
+                if (fs.existsSync(this._oauthCachePath)) {
+                    const raw = JSON.parse(fs.readFileSync(this._oauthCachePath, 'utf8'));
+                    mergeCandidate(normalizeCandidate(raw));
+                }
+            } catch (err) {
+                log.debug('Unable to read Blink OAuth cache:', err?.message || err);
+            }
+        }
+
+        mergeCandidate(normalizeCandidate(this.blinkAPI.getOAuthBundle?.() || {}));
+
+        if (!merged.access_token && !merged.refresh_token) {
+            this._oauthBundleLoaded = true;
+            return;
+        }
+
+        if (!merged.expires_at && merged.expires_in) {
+            merged.expires_at = Date.now() + merged.expires_in * 1000;
+        }
+        delete merged.expires_in;
+
+        if (merged.refresh_token) {
+            this.blinkAPI.refresh_token = merged.refresh_token;
+            if (this.blinkAPI.auth) this.blinkAPI.auth.refreshToken = merged.refresh_token;
+        }
+        if (merged.access_token) {
+            this.blinkAPI.token = merged.access_token;
+            if (this.blinkAPI.auth) this.blinkAPI.auth.accessToken = merged.access_token;
+        }
+        if (merged.account_id !== undefined && merged.account_id !== null) {
+            this.blinkAPI.accountID = merged.account_id;
+        }
+        if (merged.client_id !== undefined && merged.client_id !== null) {
+            this.blinkAPI.clientID = merged.client_id;
+        }
+        if (merged.region) {
+            this.blinkAPI.region = merged.region;
+        }
+
+        this.blinkAPI._oauthHeaders = merged.headers ? { ...merged.headers } : null;
+        this.blinkAPI._oauthBundle = {
+            ...merged,
+            headers: merged.headers ? { ...merged.headers } : null,
+        };
+
+        if (merged.hardware_id && this.blinkAPI.auth) {
+            this.blinkAPI.auth.hardwareId = merged.hardware_id;
+            this.blinkAPI.auth.clientUUID = this.blinkAPI.auth.clientUUID || merged.hardware_id;
+        }
+
+        if (this.config) {
+            const assignConfig = (key, value, transform = v => v) => {
+                if (value === undefined || value === null || value === '') return;
+                this.config[key] = transform(value);
+            };
+
+            assignConfig('accessToken', merged.access_token);
+            assignConfig('refreshToken', merged.refresh_token);
+            assignConfig('tokenExpiresAt', merged.expires_at, Number);
+            assignConfig('accountId', merged.account_id);
+            assignConfig('clientId', merged.client_id);
+            assignConfig('region', merged.region);
+            assignConfig('tokenScope', merged.scope);
+            assignConfig('tokenType', merged.token_type);
+            assignConfig('sessionId', merged.session_id);
+            assignConfig('hardwareId', merged.hardware_id);
+            assignConfig('oauthClientId', merged.oauth_client_id);
+            if (merged.headers) {
+                this.config.tokenHeaders = { ...merged.headers };
+            }
+        }
+
+        this._oauthBundleLoaded = true;
     }
 
     async refreshData(force = false) {

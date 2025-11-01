@@ -177,6 +177,49 @@ header h1 {
     margin: 0.2rem 0 0;
     font-size: 0.95rem;
 }
+.details dd.token-headers {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.link-button {
+    appearance: none;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: #2563eb;
+    cursor: pointer;
+    text-align: left;
+}
+
+.link-button:hover:not(:disabled) {
+    text-decoration: underline;
+}
+
+.link-button:disabled {
+    color: #94a3b8;
+    cursor: default;
+}
+
+.headers-dump {
+    display: none;
+    padding: 0.75rem;
+    border-radius: 12px;
+    background: #f1f5f9;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    font-size: 0.85rem;
+    max-height: 240px;
+    overflow: auto;
+    white-space: pre;
+}
+
+.headers-dump.open {
+    display: block;
+}
 
 .help {
     margin-top: 2.5rem;
@@ -247,6 +290,19 @@ header h1 {
     .form-section textarea:focus {
         border-color: #60a5fa;
         box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.25);
+    }
+
+    .link-button {
+        color: #60a5fa;
+    }
+
+    .link-button:disabled {
+        color: rgba(148, 163, 184, 0.6);
+    }
+
+    .headers-dump {
+        background: rgba(15, 23, 42, 0.55);
+        border-color: rgba(148, 163, 184, 0.2);
     }
 
     .help {

@@ -668,6 +668,11 @@ class BlinkAPI {
         const clientId = res.account?.client_id ?? res.client_id ?? this.clientID ?? null;
         const region = res.account?.tier ?? res.region ?? this.region ?? null;
         const sessionId = res.session_id ?? normalizedHeaders?.['session-id'] ?? normalizedHeaders?.['session_id'] ?? null;
+        const expiresInHeader = normalizedHeaders?.['expires-in'] ?? normalizedHeaders?.['x-expires-in'];
+        const expiresIn = Number(res?.expires_in ?? expiresInHeader ?? 0);
+        const expiresAt = res?.expires_at !== undefined && res?.expires_at !== null
+            ? Number(res.expires_at)
+            : (Number.isFinite(expiresIn) && expiresIn > 0 ? Date.now() + expiresIn * 1000 : null);
 
         this._oauthHeaders = normalizedHeaders ? { ...normalizedHeaders } : null;
         this._oauthBundle = {
@@ -675,7 +680,8 @@ class BlinkAPI {
             refresh_token: this.refresh_token,
             token_type: tokenType,
             scope,
-            expires_in: res.expires_in ?? res.expires_at ?? null,
+            expires_at: expiresAt ?? null,
+            expires_in: Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn : null,
             account_id: accountId,
             client_id: clientId,
             region,
@@ -686,7 +692,14 @@ class BlinkAPI {
         };
 
         if (normalizedHeaders) {
+            res.headers = { ...normalizedHeaders };
             res.token_headers = { ...normalizedHeaders };
+        }
+        if (expiresAt) {
+            res.expires_at = expiresAt;
+        }
+        if (Number.isFinite(expiresIn) && expiresIn > 0) {
+            res.expires_in = expiresIn;
         }
 
         return res;

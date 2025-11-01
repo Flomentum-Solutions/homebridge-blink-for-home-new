@@ -33,7 +33,9 @@
     const typeEl = document.getElementById('detail-type');
     const sessionEl = document.getElementById('detail-session');
     const oauthClientEl = document.getElementById('detail-oauth-client');
-    const headersEl = document.getElementById('detail-headers');
+    const headersContainer = document.getElementById('detail-headers');
+    const headersToggle = document.getElementById('detail-headers-toggle');
+    const headersDump = document.getElementById('detail-headers-dump');
     const saveTokensButton = document.getElementById('save-tokens');
     const refreshButton = document.getElementById('refresh-tokens');
     const clearTokensButton = document.getElementById('clear-tokens');
@@ -49,11 +51,15 @@
         return `${date.toLocaleString()} (${minutes} min)`;
     }
 
-    function formatHeaders(headers) {
-        if (!headers || typeof headers !== 'object') return '—';
-        const entries = Object.entries(headers).filter(([, value]) => value !== undefined && value !== null && value !== '');
-        if (!entries.length) return '—';
-        return `${entries.length} header${entries.length === 1 ? '' : 's'}`;
+    function summariseHeaders(headers) {
+        if (!headers || typeof headers !== 'object') return { label: '—', entries: [], json: '' };
+        const entries = Object.entries(headers)
+            .filter(([, value]) => value !== undefined && value !== null && value !== '');
+        if (!entries.length) return { label: '—', entries: [], json: '' };
+        const label = `${entries.length} header${entries.length === 1 ? '' : 's'}`;
+        const payload = Object.fromEntries(entries);
+        const json = JSON.stringify(payload, null, 2);
+        return { label, entries, json };
     }
 
     function updateStatus() {
@@ -74,7 +80,22 @@
         typeEl.textContent = state.config.tokenType || '—';
         oauthClientEl.textContent = state.config.oauthClientId || '—';
         sessionEl.textContent = state.config.sessionId || '—';
-        headersEl.textContent = formatHeaders(state.config.tokenHeaders);
+        if (headersToggle && headersDump && headersContainer) {
+            const headerSummary = summariseHeaders(state.config.tokenHeaders);
+            headersToggle.textContent = headerSummary.label;
+            headersToggle.disabled = headerSummary.entries.length === 0;
+            headersToggle.classList.toggle('disabled', headerSummary.entries.length === 0);
+            if (headerSummary.entries.length === 0) {
+                headersDump.classList.remove('open');
+                headersDump.textContent = '';
+                headersToggle.setAttribute('aria-expanded', 'false');
+                headersContainer.classList.remove('has-data');
+            } else {
+                headersDump.textContent = headerSummary.json;
+                headersToggle.setAttribute('aria-expanded', headersDump.classList.contains('open') ? 'true' : 'false');
+                headersContainer.classList.add('has-data');
+            }
+        }
     }
 
     function syncFormFromConfig() {
@@ -133,19 +154,19 @@
         const strOrEmpty = value => (value === undefined || value === null ? '' : String(value).trim());
         return {
             hardwareId: strOrEmpty(tokens.hardware_id ?? fallback.hardwareId ?? state.config.hardwareId ?? ''),
-            accessToken: strOrEmpty(tokens.access_token ?? fallback.accessToken ?? ''),
+            accessToken: strOrEmpty(tokens.access_token ?? fallback.accessToken ?? state.config.accessToken ?? ''),
             refreshToken: strOrEmpty(tokens.refresh_token ?? fallback.refreshToken ?? state.config.refreshToken ?? ''),
-            tokenExpiresAt: tokens.expires_at ?? null,
-            accountId: tokens.account_id ?? null,
-            clientId: tokens.client_id ?? null,
-            region: tokens.region ?? null,
-            tokenScope: strOrEmpty(tokens.scope ?? state.config.tokenScope ?? ''),
-            tokenType: strOrEmpty(tokens.token_type ?? state.config.tokenType ?? ''),
-            sessionId: strOrEmpty(tokens.session_id ?? state.config.sessionId ?? ''),
-            oauthClientId: strOrEmpty(tokens.oauth_client_id ?? state.config.oauthClientId ?? ''),
+            tokenExpiresAt: tokens.expires_at ?? fallback.tokenExpiresAt ?? state.config.tokenExpiresAt ?? null,
+            accountId: tokens.account_id ?? fallback.accountId ?? state.config.accountId ?? null,
+            clientId: tokens.client_id ?? fallback.clientId ?? state.config.clientId ?? null,
+            region: tokens.region ?? fallback.region ?? state.config.region ?? null,
+            tokenScope: strOrEmpty(tokens.scope ?? fallback.tokenScope ?? state.config.tokenScope ?? ''),
+            tokenType: strOrEmpty(tokens.token_type ?? fallback.tokenType ?? state.config.tokenType ?? ''),
+            sessionId: strOrEmpty(tokens.session_id ?? fallback.sessionId ?? state.config.sessionId ?? ''),
+            oauthClientId: strOrEmpty(tokens.oauth_client_id ?? fallback.oauthClientId ?? state.config.oauthClientId ?? ''),
             tokenHeaders: tokens.headers
                 ? { ...tokens.headers }
-                : (state.config.tokenHeaders ?? null),
+                : (fallback.tokenHeaders ?? state.config.tokenHeaders ?? null),
         };
     }
 
@@ -325,6 +346,14 @@
         } finally {
             setBusy(false);
         }
+    }
+
+    if (headersToggle && headersDump) {
+        headersToggle.addEventListener('click', () => {
+            if (headersToggle.disabled) return;
+            const open = headersDump.classList.toggle('open');
+            headersToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
     }
 
     saveCredentialsButton.addEventListener('click', () => saveCredentials());
