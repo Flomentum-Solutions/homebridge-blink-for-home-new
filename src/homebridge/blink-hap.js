@@ -331,6 +331,26 @@ class BlinkCameraHAP extends BlinkCamera {
         super(data, blink);
     }
 
+    set data(newInfo) {
+        super.data = newInfo;
+        this.updateOperatingModeState();
+    }
+
+    set privacyMode(val) {
+        super.privacyMode = val;
+        this.updateOperatingModeState();
+    }
+
+    updateOperatingModeState() {
+        const cameraMode = this.accessory?.getService(Service.CameraOperatingMode);
+        if (!cameraMode) return;
+        const active = this.online && (this.enabled !== false) && !this.privacyMode;
+        cameraMode.updateCharacteristic(Characteristic.HomeKitCameraActive, active);
+        cameraMode.updateCharacteristic(Characteristic.EventSnapshotsActive, active);
+        cameraMode.updateCharacteristic(Characteristic.PeriodicSnapshotsActive, active);
+        cameraMode.updateCharacteristic(Characteristic.ManuallyDisabled, !active);
+    }
+
     get controller() {
         if (!this._controller) {
             const cameraDelegate = new BlinkCameraDelegate(this);
@@ -373,14 +393,15 @@ class BlinkCameraHAP extends BlinkCamera {
         // console.log('activeCameraController?', this.accessory.activeCameraController);
 
         const cameraMode = this.accessory.getService(Service.CameraOperatingMode);
-        // this.bindCharacteristic(cameraMode, Characteristic.EventSnapshotsActive,
-        //   'EventSnapshotsActive', () => Boolean(this.context._eventSnapshots), val => this.context._eventSnapshots = val);
-        // this.bindCharacteristic(cameraMode, Characteristic.HomeKitCameraActive,
-        //     'HomeKitCameraActive', () => this.enabled); // , async val => await this.setEnabled(val));
-        // this.bindCharacteristic(cameraMode, Characteristic.PeriodicSnapshotsActive,
-        //     'PeriodicSnapshotsActive', () => this.privacyMode);
+        const cameraIsActive = () => this.online && (this.enabled !== false) && !this.privacyMode;
+        this.bindCharacteristic(cameraMode, Characteristic.HomeKitCameraActive,
+            'HomeKitCameraActive', () => cameraIsActive(), null, BlinkDeviceHAP.formatBoolean);
+        this.bindCharacteristic(cameraMode, Characteristic.EventSnapshotsActive,
+            'EventSnapshotsActive', () => cameraIsActive(), null, BlinkDeviceHAP.formatBoolean);
+        this.bindCharacteristic(cameraMode, Characteristic.PeriodicSnapshotsActive,
+            'PeriodicSnapshotsActive', () => cameraIsActive(), null, BlinkDeviceHAP.formatBoolean);
         this.bindCharacteristic(cameraMode, Characteristic.ManuallyDisabled,
-            'ManuallyDisabled', () => !this.network.armed, null, BlinkDeviceHAP.formatBoolean);
+            'ManuallyDisabled', () => !cameraIsActive(), null, BlinkDeviceHAP.formatBoolean);
 
         // const cameraStream = this.accessory.getService(Service.CameraRTPStreamManagement);
         // this.bindCharacteristic(cameraStream, Characteristic.Active,
@@ -451,6 +472,7 @@ class BlinkCameraHAP extends BlinkCamera {
         // TODO: add illuminator control
         // TODO: add Wifi SSR
 
+        this.updateOperatingModeState();
         return this;
     }
 }
