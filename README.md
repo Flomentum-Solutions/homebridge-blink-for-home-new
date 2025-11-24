@@ -19,9 +19,13 @@ This enables Blink Cameras to the HomeBridge platform. This includes:
 
 -   Security System Arm / Disarming
 -   Occupied Switch
--   Camera Thumbnails (Liveview WIP)
+-   ~Camera Thumbnails (Liveview WIP)~
 -   Temperature Sensors
 -   Alerts
+
+This plugins utility is restricted to the arming and disarming of the system. Live video feed and even updated thumbnails in HomeKit are not currently supported and may never be.
+
+The plugin allows the use of automation routines for arming and disarming and will communicate to blink servers to configure the system as desired. Cameras will show as disabled unless the system is armed. However, even when armed, you will likely get a "No Response: This camera is not responding." message within Apple Home.
 
 ## Setup
 
