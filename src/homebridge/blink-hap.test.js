@@ -302,7 +302,7 @@ describe('BlinkHAP', () => {
             if (armedAt >= 0) networkDevice.armedAt = armedAt;
             networkDevice.data.updated_at = new Date(updatedAt).toISOString();
             const getMotionDetected = jest.fn(()=> motion);
-            for (const camera of networkDevice.cameras) camera.getMotionDetected = getMotionDetected;
+            for (const camera of networkDevice.cameras) camera.getCachedMotionDetected = getMotionDetected;
 
             const res = await networkDevice.getSecuritySystemCurrentState();
             expect(res).toBe(outState);

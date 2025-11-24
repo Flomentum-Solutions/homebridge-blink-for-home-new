@@ -250,20 +250,47 @@ class BlinkCamera extends BlinkDevice {
         return fullStatus.camera_status.wifi_strength;
     }
 
-    async getMotionDetected() {
+    async getMotionDetected(options = {}) {
+        const now = Date.now();
+        if (!this.armed) {
+            this.context.motionDetected = false;
+            return false;
+        }
+
+        const lastDeviceUpdate = Math.max(this.updatedAt, this.network.updatedAt) + Blink.MOTION_TRIGGER_DECAY * 1000;
+        if (now > lastDeviceUpdate) {
+            this.context.motionDetected = false;
+            return false;
+        }
+
+        const lastMotion = await this.blink.getCameraLastMotion(this.networkID, this.cameraID, options);
+        return this.applyMotionState(lastMotion, now);
+    }
+
+    getCachedMotionDetected(now = Date.now()) {
+        return this.applyMotionState(this.context.lastMotion, now);
+    }
+
+    applyMotionState(lastMotion = null, now = Date.now()) {
+        if (lastMotion) this.context.lastMotion = lastMotion;
+        const detected = this.computeMotionDetected(lastMotion || this.context.lastMotion, now);
+        this.context.motionDetected = detected;
+        return detected;
+    }
+
+    computeMotionDetected(lastMotion = null, now = Date.now()) {
         if (!this.armed) return false;
 
         const lastDeviceUpdate = Math.max(this.updatedAt, this.network.updatedAt) + Blink.MOTION_TRIGGER_DECAY * 1000;
-        if (Date.now() > lastDeviceUpdate) return false;
+        if (now > lastDeviceUpdate) return false;
 
-        const lastMotion = await this.blink.getCameraLastMotion(this.networkID, this.cameraID);
         if (!lastMotion) return false;
 
         const triggerEnd = (Date.parse(lastMotion?.created_at) || 0) + Blink.MOTION_TRIGGER_DECAY * 1000;
         // use the last time we armed or the current updated_at field to determine if the motion was recent
         const triggerStart = (this.network.armedAt || this.network.updatedAt || 0) - Blink.ARMED_DELAY * 1000;
 
-        return Date.now() >= triggerStart && Date.now() <= triggerEnd;
+        return now >= triggerStart && now <= triggerEnd;
     }
 
     getMotionDetectActive() {
@@ -341,6 +368,11 @@ class Blink {
         this._lockCache = new Map();
         this._oauthCachePath = tokenCachePath;
         this._oauthBundleLoaded = false;
+        this._motionEventCache = {
+            fetchedAt: 0,
+            events: new Map(),
+            inflight: null,
+        };
     }
 
     createNetwork(data) {
@@ -882,7 +914,7 @@ class Blink {
             .filter(camera => !camera.isCameraMini);
 
         const status = await Promise.all(cameras.map(async camera => {
-            const lastMedia = await this.getCameraLastMotion(camera.networkID, camera.cameraID);
+            const lastMedia = await this.getCameraLastMotion(camera.networkID, camera.cameraID, { force });
             const lastSnapshot = Date.parse(lastMedia.created_at) + (this.snapshotRate * 1000);
             if (force || (camera.armed && camera.enabled && Date.now() >= lastSnapshot)) {
                 log(`${camera.name} - Refreshing clip`);
@@ -929,9 +961,58 @@ class Blink {
         return await this.blinkAPI.getCameraStatus(networkID, cameraID, maxTTL);
     }
 
-    async getCameraLastMotion(networkID, cameraID = null) {
-        const res = await this.blinkAPI.getMediaChange(this.motionPoll).catch(e => log.error(e));
-        const media = (res.media || [])
+    async getMotionEvents(force = false, { backgroundRefresh = false } = {}) {
+        const cache = this._motionEventCache || {};
+        const now = Date.now();
+        const ttlMs = (this.motionPoll || MOTION_POLL) * 1000;
+        const isFresh = cache.events && cache.fetchedAt && (now - cache.fetchedAt) < ttlMs;
+
+        if (!force && isFresh) return cache.events;
+
+        if (!force && backgroundRefresh && cache.events instanceof Map && cache.events.size > 0) {
+            if (!cache.inflight) {
+                cache.inflight = this._fetchMotionEvents(false).finally(() => { cache.inflight = null; });
+                this._motionEventCache = cache;
+            }
+            return cache.events;
+        }
+
+        if (cache.inflight && !force) return await cache.inflight;
+
+        return await this._fetchMotionEvents(force);
+    }
+
+    async _fetchMotionEvents(force = false) {
+        const ttl = force ? 0 : this.motionPoll;
+        const res = await this.blinkAPI.getMediaChange(ttl).catch(e => {
+            log.error(e);
+            return { media: [] };
+        });
+        const events = new Map();
+        for (const entry of res?.media || []) {
+            const existing = events.get(entry.device_id);
+            const entryDate = Date.parse(entry.created_at) || 0;
+            const existingDate = existing ? (Date.parse(existing.created_at) || 0) : 0;
+            if (!existing || entryDate > existingDate) {
+                events.set(entry.device_id, entry);
+            }
+        }
+        this._motionEventCache = {
+            fetchedAt: Date.now(),
+            events,
+            inflight: null,
+        };
+        return events;
+    }
+
+    async getCameraLastMotion(networkID, cameraID = null, options = {}) {
+        const { force = false, backgroundRefresh = false } = options || {};
+        const events = await this.getMotionEvents(force, { backgroundRefresh });
+        if (cameraID) {
+            const candidate = events.get(cameraID);
+            if (candidate && (!networkID || candidate.network_id === networkID)) return candidate;
+        }
+        const media = [...events.values()]
             .filter(m => !networkID || m.network_id === networkID)
             .filter(m => !cameraID || m.device_id === cameraID)
             .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));

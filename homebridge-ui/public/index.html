@@ -12,21 +12,18 @@
     </section>
 
     <section class="form-section">
-        <h2>Credentials (optional)</h2>
-        <p class="help-text">Provide your Blink login so the plugin can request fresh tokens automatically. The PIN/OTP fields are only needed when Blink prompts for 2FA.</p>
+        <h2>Credentials</h2>
+        <p class="help-text">Sign in with your Blink account to fetch and refresh tokens. You’ll be prompted for the 2FA PIN after the first login attempt.</p>
         <label for="username">Email</label>
         <input id="username" type="email" autocomplete="email" spellcheck="false" placeholder="name@example.com">
 
         <label for="password">Password</label>
         <input id="password" type="password" autocomplete="current-password" placeholder="Blink account password">
 
-        <div class="split">
+        <div id="pin-row" class="pin-row hidden">
             <label for="pin">2FA PIN</label>
-            <label for="otp">2FA Code</label>
-        </div>
-        <div class="split">
-            <input id="pin" type="text" autocomplete="one-time-code" spellcheck="false" placeholder="e.g. 123456">
-            <input id="otp" type="text" autocomplete="one-time-code" spellcheck="false" placeholder="Optional OTP/token">
+            <input id="pin" type="text" autocomplete="one-time-code" spellcheck="false" placeholder="Enter the 6-digit PIN">
+            <p class="help-text" id="pin-help">After you start login, enter the 6-digit code Blink sends to your phone.</p>
         </div>
 
         <div class="controls">
@@ -36,27 +33,114 @@
         </div>
     </section>
 
-    <section class="form-section">
-        <h2>Tokens</h2>
-        <label for="hardware-id">Hardware ID</label>
-        <input id="hardware-id" type="text" autocomplete="off" spellcheck="false" placeholder="Blink hardware UUID">
-
-        <label for="access-token">Access Token</label>
-        <textarea id="access-token" class="token-input" spellcheck="false" placeholder="Paste your Blink access_token"></textarea>
-
-        <label for="refresh-token">Refresh Token</label>
-        <textarea id="refresh-token" class="token-input" spellcheck="false" placeholder="Paste your Blink refresh_token"></textarea>
-
-        <div class="controls">
-            <button id="save-tokens" class="btn primary">Save Tokens</button>
-            <button id="refresh-tokens" class="btn">Refresh Tokens</button>
-            <button id="clear-tokens" class="btn subtle">Clear Tokens</button>
+    <section class="help lead collapsible">
+        <div class="help-header">
+            <h2>Need a refresher?</h2>
+            <button id="help-toggle" type="button" class="btn subtle">Show</button>
+        </div>
+        <div id="help-body" class="help-body collapsed">
+            <p>You can still extract an <code>access_token</code> and <code>refresh_token</code> from the Blink app or API and paste them here, then press <strong>Save Tokens</strong>.</p>
+            <p>If you provide your Blink email and password, the <strong>Login &amp; Fetch Tokens</strong> button will request fresh credentials automatically. The PIN field appears after Blink sends a 2FA challenge.</p>
+            <p>The <strong>Refresh Tokens</strong> button requests a fresh pair from Blink using the stored refresh token so your Homebridge instance stays authorised.</p>
         </div>
     </section>
 
-    <section class="details">
-        <h2>Token Metadata</h2>
-        <dl>
+    <section class="form-section collapsible" id="tokens-section">
+        <div class="section-header">
+            <h2>Tokens</h2>
+            <button id="tokens-toggle" type="button" class="btn subtle">Show</button>
+        </div>
+        <div id="tokens-body" class="tokens-body collapsed">
+            <label for="hardware-id">Hardware ID</label>
+            <input id="hardware-id" type="text" autocomplete="off" spellcheck="false" placeholder="Blink hardware UUID">
+
+            <label for="access-token">Access Token</label>
+            <textarea id="access-token" class="token-input" spellcheck="false" placeholder="Paste your Blink access_token"></textarea>
+
+            <label for="refresh-token">Refresh Token</label>
+            <textarea id="refresh-token" class="token-input" spellcheck="false" placeholder="Paste your Blink refresh_token"></textarea>
+
+            <div class="controls">
+                <button id="save-tokens" class="btn primary">Save Tokens</button>
+                <button id="refresh-tokens" class="btn">Refresh Tokens</button>
+                <button id="clear-tokens" class="btn subtle">Clear Tokens</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="form-section">
+        <h2>General Settings</h2>
+        <div class="split">
+            <div>
+                <label for="config-name">Name</label>
+                <input id="config-name" type="text" autocomplete="off" placeholder="Blink">
+            </div>
+            <div>
+                <label for="ffmpeg-path">FFmpeg Path</label>
+                <input id="ffmpeg-path" type="text" autocomplete="off" spellcheck="false" placeholder="/usr/bin/ffmpeg">
+            </div>
+        </div>
+        <div class="split">
+            <div>
+                <label for="logging">Logging</label>
+                <select id="logging">
+                    <option value="">Standard</option>
+                    <option value="verbose">Verbose</option>
+                    <option value="debug">Debug</option>
+                </select>
+            </div>
+            <div class="checkbox-row">
+                <label class="checkbox">
+                    <input id="enable-startup-diagnostic" type="checkbox">
+                    <span>Enable diagnostic logging on startup</span>
+                </label>
+            </div>
+        </div>
+    </section>
+
+    <section class="form-section">
+        <h2>Features</h2>
+        <div class="option-grid">
+            <label class="checkbox"><input id="hide-alarm" type="checkbox"><span>Hide Alarm (Security System)</span></label>
+            <label class="checkbox"><input id="hide-manual-arm-switch" type="checkbox"><span>Hide Sync Module Arm Switch</span></label>
+            <label class="checkbox"><input id="hide-enabled-switch" type="checkbox"><span>Hide Camera Motion Enabled/Disable Switch</span></label>
+            <label class="checkbox"><input id="hide-privacy-switch" type="checkbox"><span>Hide Camera Privacy-Mode Switch</span></label>
+            <label class="checkbox"><input id="hide-temperature-sensor" type="checkbox"><span>Hide Camera Temperature Sensors</span></label>
+            <label class="checkbox"><input id="enable-liveview" type="checkbox"><span>Enable LiveView when clicking on a camera feed (experimental)</span></label>
+            <label class="checkbox"><input id="disable-thumbnail-refresh" type="checkbox"><span>Disable thumbnail auto-refresh</span></label>
+        </div>
+    </section>
+
+    <section class="form-section">
+        <h2>Polling &amp; Motion</h2>
+        <div class="split">
+            <div>
+                <label for="camera-motion-polling-seconds">Camera Motion Polling (seconds)</label>
+                <input id="camera-motion-polling-seconds" type="number" min="0" placeholder="15">
+            </div>
+            <div>
+                <label for="camera-status-polling-seconds">Status Polling (seconds)</label>
+                <input id="camera-status-polling-seconds" type="number" min="1" placeholder="30">
+            </div>
+        </div>
+        <div class="split">
+            <div>
+                <label for="camera-thumbnail-refresh-seconds">Camera Thumbnail Refresh (seconds)</label>
+                <input id="camera-thumbnail-refresh-seconds" type="number" min="0" placeholder="3600">
+            </div>
+        </div>
+        <div class="controls">
+            <button id="save-settings" class="btn">Save Settings</button>
+        </div>
+    </section>
+
+    <section class="details collapsible">
+        <div class="details-header">
+            <h2>Token Metadata</h2>
+            <button id="details-toggle" type="button" class="btn subtle">Show</button>
+        </div>
+        <div id="details-body" class="details-body collapsed">
+            <dl>
             <div>
                 <dt>Access token expires</dt>
                 <dd id="detail-expiry">—</dd>
@@ -100,14 +184,8 @@
                     <pre id="detail-headers-dump" class="headers-dump"></pre>
                 </dd>
             </div>
-        </dl>
-    </section>
-
-    <section class="help">
-        <h2>Need a refresher?</h2>
-        <p>You can still extract an <code>access_token</code> and <code>refresh_token</code> from the Blink app or API and paste them here, then press <strong>Save Tokens</strong>.</p>
-        <p>If you provide your Blink email and password, the <strong>Login &amp; Fetch Tokens</strong> button will request fresh credentials automatically. Supply the PIN/OTP fields whenever Blink sends you a 2FA challenge.</p>
-        <p>The <strong>Refresh Tokens</strong> button requests a fresh pair from Blink using the stored refresh token so your Homebridge instance stays authorised.</p>
+            </dl>
+        </div>
     </section>
 </main>
 
