@@ -1,14 +1,36 @@
 :root {
     color-scheme: light dark;
+    --bg: #f5f5f5;
+    --surface: #ffffff;
+    --text: #1f2933;
+    --muted: #52606d;
+    --input-bg: #f8fafc;
+    --input-border: rgba(15, 23, 42, 0.15);
+    --accent: #2563eb;
+    --shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background-color: #f5f5f5;
-    color: #1f2933;
+    background-color: var(--bg);
+    color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #0f172a;
+        --surface: #111827;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --input-bg: #0b1222;
+        --input-border: rgba(226, 232, 240, 0.18);
+        --accent: #60a5fa;
+        --shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+    }
 }
 
 body {
     margin: 0;
     padding: 0;
-    background: #f5f5f5;
+    background: var(--bg);
+    color: var(--text);
 }
 
 .container {
@@ -23,7 +45,7 @@ header h1 {
 
 .subtitle {
     margin: 0;
-    color: #52606d;
+    color: var(--muted);
 }
 
 .status-panel {
@@ -35,7 +57,7 @@ header h1 {
     border-radius: 12px;
     background: #e0f2ff;
     color: #102a43;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    box-shadow: var(--shadow);
 }
 
 .status-panel .status-label {
@@ -55,8 +77,8 @@ header h1 {
     font-size: 1rem;
     cursor: pointer;
     transition: transform 120ms ease, box-shadow 120ms ease;
-    background: #fff;
-    color: #102a43;
+    background: var(--surface);
+    color: var(--text);
     box-shadow: 0 6px 18px rgba(15, 23, 42, 0.1);
 }
 
@@ -72,7 +94,7 @@ header h1 {
 }
 
 .btn.primary {
-    background: #2563eb;
+    background: var(--accent);
     color: #fff;
     box-shadow: 0 10px 24px rgba(37, 99, 235, 0.25);
 }
@@ -84,15 +106,15 @@ header h1 {
 }
 
 .btn.primary:hover {
-    background: #1d4ed8;
+    background: color-mix(in srgb, var(--accent) 85%, #000 10%);
 }
 
 .form-section {
     margin-top: 2rem;
-    background: #fff;
+    background: var(--surface);
     padding: 1.5rem;
     border-radius: 16px;
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+    box-shadow: var(--shadow);
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -101,7 +123,7 @@ header h1 {
 .form-section label {
     font-weight: 600;
     font-size: 0.95rem;
-    color: #334155;
+    color: var(--text);
 }
 
 .form-section input,
@@ -112,9 +134,9 @@ header h1 {
     font-size: 0.95rem;
     padding: 0.75rem 0.9rem;
     border-radius: 12px;
-    border: 1px solid rgba(15, 23, 42, 0.15);
-    background: #f8fafc;
-    color: inherit;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--text);
     transition: border-color 120ms ease, box-shadow 120ms ease;
     resize: vertical;
 }
@@ -123,14 +145,14 @@ header h1 {
 .form-section textarea:focus,
 .form-section select:focus {
     outline: none;
-    border-color: #2563eb;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 .form-section .help-text {
     margin: 0;
     font-size: 0.9rem;
-    color: #64748b;
+    color: var(--muted);
 }
 
 .form-section .split {
@@ -152,10 +174,10 @@ header h1 {
 
 .details {
     margin-top: 2.5rem;
-    background: #fff;
+    background: var(--surface);
     padding: 1.5rem;
     border-radius: 16px;
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+    box-shadow: var(--shadow);
 }
 
 .details h2 {
@@ -172,7 +194,7 @@ header h1 {
 .details dt {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #52606d;
+    color: var(--muted);
 }
 
 .details dd {
@@ -183,6 +205,28 @@ header h1 {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+}
+
+.details.collapsible .details-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.details-body.collapsed {
+    display: none;
+}
+
+.help.collapsible .help-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.help-body.collapsed {
+    display: none;
 }
 
 .link-button {
@@ -210,7 +254,7 @@ header h1 {
     display: none;
     padding: 0.75rem;
     border-radius: 12px;
-    background: #f1f5f9;
+    background: color-mix(in srgb, var(--surface) 85%, #000 5%);
     border: 1px solid rgba(15, 23, 42, 0.08);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
     font-size: 0.85rem;
@@ -255,7 +299,7 @@ header h1 {
 .option-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 0.75rem 1rem;
+    gap: 1rem;
 }
 
 .checkbox {
@@ -263,7 +307,13 @@ header h1 {
     gap: 0.6rem;
     align-items: flex-start;
     font-weight: 600;
-    color: #334155;
+    color: var(--text);
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 12px;
+    padding: 0.85rem 0.9rem;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+    min-height: 96px;
 }
 
 .checkbox span {
@@ -287,6 +337,11 @@ header h1 {
 .form-section select {
     font-family: inherit;
     cursor: pointer;
+}
+
+.option-grid .checkbox {
+    width: 100%;
+    box-sizing: border-box;
 }
 
 @media (prefers-color-scheme: dark) {

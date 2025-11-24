@@ -6,13 +6,6 @@
         <p class="subtitle">Use your Blink credentials or existing tokens to keep Homebridge authorised.</p>
     </header>
 
-    <section class="help lead">
-        <h2>Need a refresher?</h2>
-        <p>You can still extract an <code>access_token</code> and <code>refresh_token</code> from the Blink app or API and paste them here, then press <strong>Save Tokens</strong>.</p>
-        <p>If you provide your Blink email and password, the <strong>Login &amp; Fetch Tokens</strong> button will request fresh credentials automatically. The PIN field appears after Blink sends a 2FA challenge.</p>
-        <p>The <strong>Refresh Tokens</strong> button requests a fresh pair from Blink using the stored refresh token so your Homebridge instance stays authorised.</p>
-    </section>
-
     <section class="status-panel">
         <div class="status-label">Status:</div>
         <div id="status" class="status-value">Loading…</div>
@@ -37,6 +30,18 @@
             <button id="save-credentials" class="btn">Save Credentials</button>
             <button id="login-credentials" class="btn primary">Login &amp; Fetch Tokens</button>
             <button id="clear-credentials" class="btn subtle">Clear Credentials</button>
+        </div>
+    </section>
+
+    <section class="help lead collapsible">
+        <div class="help-header">
+            <h2>Need a refresher?</h2>
+            <button id="help-toggle" type="button" class="btn subtle">Hide</button>
+        </div>
+        <div id="help-body" class="help-body">
+            <p>You can still extract an <code>access_token</code> and <code>refresh_token</code> from the Blink app or API and paste them here, then press <strong>Save Tokens</strong>.</p>
+            <p>If you provide your Blink email and password, the <strong>Login &amp; Fetch Tokens</strong> button will request fresh credentials automatically. The PIN field appears after Blink sends a 2FA challenge.</p>
+            <p>The <strong>Refresh Tokens</strong> button requests a fresh pair from Blink using the stored refresh token so your Homebridge instance stays authorised.</p>
         </div>
     </section>
 
@@ -119,24 +124,18 @@
                 <input id="camera-thumbnail-refresh-seconds" type="number" min="0" placeholder="3600">
             </div>
         </div>
-    </section>
-
-    <section class="form-section">
-        <h2>Advanced &amp; Legacy</h2>
-        <div class="split">
-            <div>
-                <label for="otp">Legacy 2FA Code / OTP</label>
-                <input id="otp" type="text" autocomplete="one-time-code" spellcheck="false" placeholder="Optional OTP/token">
-            </div>
-        </div>
         <div class="controls">
             <button id="save-settings" class="btn">Save Settings</button>
         </div>
     </section>
 
-    <section class="details">
-        <h2>Token Metadata</h2>
-        <dl>
+    <section class="details collapsible">
+        <div class="details-header">
+            <h2>Token Metadata</h2>
+            <button id="details-toggle" type="button" class="btn subtle">Show</button>
+        </div>
+        <div id="details-body" class="details-body collapsed">
+            <dl>
             <div>
                 <dt>Access token expires</dt>
                 <dd id="detail-expiry">—</dd>
@@ -180,7 +179,8 @@
                     <pre id="detail-headers-dump" class="headers-dump"></pre>
                 </dd>
             </div>
-        </dl>
+            </dl>
+        </div>
     </section>
 </main>
 

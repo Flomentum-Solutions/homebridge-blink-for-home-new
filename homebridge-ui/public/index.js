@@ -27,7 +27,6 @@
     const pinInput = document.getElementById('pin');
     const pinRow = document.getElementById('pin-row');
     const pinHelp = document.getElementById('pin-help');
-    const otpInput = document.getElementById('otp');
     const accessInput = document.getElementById('access-token');
     const refreshInput = document.getElementById('refresh-token');
     const hardwareInput = document.getElementById('hardware-id');
@@ -65,6 +64,10 @@
     const clearCredentialsButton = document.getElementById('clear-credentials');
     const saveSettingsButton = document.getElementById('save-settings');
     const defaultPinMessage = pinHelp?.textContent || 'Enter the 6-digit PIN Blink sends to you.';
+    const detailsToggle = document.getElementById('details-toggle');
+    const detailsBody = document.getElementById('details-body');
+    const helpToggle = document.getElementById('help-toggle');
+    const helpBody = document.getElementById('help-body');
 
     function formatExpiry(timestamp) {
         if (!timestamp) return '—';
@@ -149,7 +152,6 @@
         usernameInput.value = state.config.username || state.config.email || '';
         passwordInput.value = state.config.password || '';
         pinInput.value = state.config.pin || '';
-        otpInput.value = state.config.otp || state.config.twoFactorCode || state.config.twoFactorToken || '';
         hardwareInput.value = state.config.hardwareId || '';
         accessInput.value = state.config.accessToken || '';
         refreshInput.value = state.config.refreshToken || '';
@@ -177,7 +179,6 @@
             username: usernameInput.value.trim(),
             password: passwordInput.value,
             pin: pinInput.value.trim(),
-            otp: otpInput.value.trim(),
             hardwareId: hardwareInput.value.trim(),
             accessToken: accessInput.value.trim(),
             refreshToken: refreshInput.value.trim(),
@@ -196,7 +197,6 @@
         return {
             name: nameInput?.value?.trim() || '',
             ffmpegPath: ffmpegInput?.value?.trim() || '',
-            otp: otpInput.value.trim(),
             logging: loggingSelect?.value || '',
             'enable-startup-diagnostic': Boolean(startupDiagnosticInput?.checked),
             'hide-alarm': Boolean(hideAlarmInput?.checked),
@@ -305,14 +305,14 @@
 
     async function saveCredentials() {
         if (state.busy) return;
-        const { username, password, pin, otp, hardwareId } = getAuthFormValues();
+        const { username, password, pin, hardwareId } = getAuthFormValues();
         if (!username || !password) {
             toast.error('Enter your Blink email and password before saving credentials.');
             return;
         }
         setBusy(true);
         try {
-            await persistConfig({ username, password, pin, otp, hardwareId });
+            await persistConfig({ username, password, pin, hardwareId });
             toast.success('Blink credentials saved.');
         } catch (err) {
             console.error('Unable to save Blink credentials', err);
@@ -347,7 +347,6 @@
                 username: form.username || state.config.username || '',
                 password: form.password || state.config.password || '',
                 pin: form.pin || state.config.pin || '',
-                otp: form.otp || state.config.otp || '',
             });
             toast.success('Blink tokens saved.');
         } catch (err) {
@@ -372,7 +371,6 @@
                 username: form.username,
                 password: form.password,
                 pin: form.pin,
-                otp: form.otp,
                 hardwareId: form.hardwareId || state.config.hardwareId,
                 refreshToken: form.refreshToken || state.config.refreshToken,
                 accessToken: form.accessToken || state.config.accessToken,
@@ -402,7 +400,6 @@
                 username: form.username,
                 password: form.password,
                 pin: '',
-                otp: '',
             });
             state.awaitingPin = false;
             togglePinPrompt(false);
@@ -447,7 +444,6 @@
                 username: form.username || state.config.username || '',
                 password: form.password || state.config.password || '',
                 pin: state.config.pin || '',
-                otp: state.config.otp || '',
             });
             toast.success('Blink tokens refreshed successfully.');
         } catch (err) {
@@ -478,7 +474,6 @@
                 username: state.config.username || '',
                 password: state.config.password || '',
                 pin: state.config.pin || '',
-                otp: state.config.otp || '',
             });
             state.awaitingPin = false;
             togglePinPrompt(false);
@@ -499,7 +494,6 @@
                 username: '',
                 password: '',
                 pin: '',
-                otp: '',
             });
             state.awaitingPin = false;
             togglePinPrompt(false);
@@ -518,6 +512,20 @@
             if (headersToggle.disabled) return;
             const open = headersDump.classList.toggle('open');
             headersToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+    }
+    if (detailsToggle && detailsBody) {
+        detailsBody.classList.add('collapsed');
+        detailsToggle.addEventListener('click', () => {
+            const isCollapsed = detailsBody.classList.toggle('collapsed');
+            detailsToggle.textContent = isCollapsed ? 'Show' : 'Hide';
+        });
+    }
+    if (helpToggle && helpBody) {
+        helpBody.classList.remove('collapsed');
+        helpToggle.addEventListener('click', () => {
+            const isCollapsed = helpBody.classList.toggle('collapsed');
+            helpToggle.textContent = isCollapsed ? 'Show' : 'Hide';
         });
     }
 
