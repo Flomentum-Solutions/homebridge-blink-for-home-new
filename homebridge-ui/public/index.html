@@ -36,30 +36,35 @@
     <section class="help lead collapsible">
         <div class="help-header">
             <h2>Need a refresher?</h2>
-            <button id="help-toggle" type="button" class="btn subtle">Hide</button>
+            <button id="help-toggle" type="button" class="btn subtle">Show</button>
         </div>
-        <div id="help-body" class="help-body">
+        <div id="help-body" class="help-body collapsed">
             <p>You can still extract an <code>access_token</code> and <code>refresh_token</code> from the Blink app or API and paste them here, then press <strong>Save Tokens</strong>.</p>
             <p>If you provide your Blink email and password, the <strong>Login &amp; Fetch Tokens</strong> button will request fresh credentials automatically. The PIN field appears after Blink sends a 2FA challenge.</p>
             <p>The <strong>Refresh Tokens</strong> button requests a fresh pair from Blink using the stored refresh token so your Homebridge instance stays authorised.</p>
         </div>
     </section>
 
-    <section class="form-section">
-        <h2>Tokens</h2>
-        <label for="hardware-id">Hardware ID</label>
-        <input id="hardware-id" type="text" autocomplete="off" spellcheck="false" placeholder="Blink hardware UUID">
+    <section class="form-section collapsible" id="tokens-section">
+        <div class="section-header">
+            <h2>Tokens</h2>
+            <button id="tokens-toggle" type="button" class="btn subtle">Show</button>
+        </div>
+        <div id="tokens-body" class="tokens-body collapsed">
+            <label for="hardware-id">Hardware ID</label>
+            <input id="hardware-id" type="text" autocomplete="off" spellcheck="false" placeholder="Blink hardware UUID">
 
-        <label for="access-token">Access Token</label>
-        <textarea id="access-token" class="token-input" spellcheck="false" placeholder="Paste your Blink access_token"></textarea>
+            <label for="access-token">Access Token</label>
+            <textarea id="access-token" class="token-input" spellcheck="false" placeholder="Paste your Blink access_token"></textarea>
 
-        <label for="refresh-token">Refresh Token</label>
-        <textarea id="refresh-token" class="token-input" spellcheck="false" placeholder="Paste your Blink refresh_token"></textarea>
+            <label for="refresh-token">Refresh Token</label>
+            <textarea id="refresh-token" class="token-input" spellcheck="false" placeholder="Paste your Blink refresh_token"></textarea>
 
-        <div class="controls">
-            <button id="save-tokens" class="btn primary">Save Tokens</button>
-            <button id="refresh-tokens" class="btn">Refresh Tokens</button>
-            <button id="clear-tokens" class="btn subtle">Clear Tokens</button>
+            <div class="controls">
+                <button id="save-tokens" class="btn primary">Save Tokens</button>
+                <button id="refresh-tokens" class="btn">Refresh Tokens</button>
+                <button id="clear-tokens" class="btn subtle">Clear Tokens</button>
+            </div>
         </div>
     </section>
 

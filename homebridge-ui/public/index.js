@@ -20,6 +20,7 @@
         busy: false,
         awaitingPin: false,
     };
+    const DEFAULT_NAME = 'Blink';
 
     const statusEl = document.getElementById('status');
     const usernameInput = document.getElementById('username');
@@ -68,6 +69,8 @@
     const detailsBody = document.getElementById('details-body');
     const helpToggle = document.getElementById('help-toggle');
     const helpBody = document.getElementById('help-body');
+    const tokensToggle = document.getElementById('tokens-toggle');
+    const tokensBody = document.getElementById('tokens-body');
 
     function formatExpiry(timestamp) {
         if (!timestamp) return '—';
@@ -155,7 +158,7 @@
         hardwareInput.value = state.config.hardwareId || '';
         accessInput.value = state.config.accessToken || '';
         refreshInput.value = state.config.refreshToken || '';
-        if (nameInput) nameInput.value = state.config.name || '';
+        if (nameInput) nameInput.value = state.config.name || DEFAULT_NAME;
         if (ffmpegInput) ffmpegInput.value = state.config.ffmpegPath || '';
         if (loggingSelect) loggingSelect.value = state.config.logging || '';
         if (startupDiagnosticInput) startupDiagnosticInput.checked = Boolean(state.config['enable-startup-diagnostic']);
@@ -225,7 +228,9 @@
 
     async function loadConfig() {
         const configs = await ui.getPluginConfig();
-        state.config = Array.isArray(configs) && configs.length > 0 ? { ...configs[0] } : {};
+        const baseConfig = Array.isArray(configs) && configs.length > 0 ? { ...configs[0] } : {};
+        if (!baseConfig.name) baseConfig.name = DEFAULT_NAME;
+        state.config = baseConfig;
         syncFormFromConfig();
         updateStatus();
     }
@@ -233,7 +238,8 @@
     async function persistConfig(newValues) {
         const configs = await ui.getPluginConfig();
         const current = Array.isArray(configs) && configs.length > 0 ? configs[0] : {};
-        const merged = { ...current, ...newValues };
+        const merged = { ...current, name: current.name || DEFAULT_NAME, ...newValues };
+        if (!merged.name) merged.name = DEFAULT_NAME;
         await ui.updatePluginConfig([merged]);
         state.config = merged;
         if (typeof ui.savePluginConfig === 'function') {
@@ -522,10 +528,17 @@
         });
     }
     if (helpToggle && helpBody) {
-        helpBody.classList.remove('collapsed');
+        helpBody.classList.add('collapsed');
         helpToggle.addEventListener('click', () => {
             const isCollapsed = helpBody.classList.toggle('collapsed');
             helpToggle.textContent = isCollapsed ? 'Show' : 'Hide';
+        });
+    }
+    if (tokensToggle && tokensBody) {
+        tokensBody.classList.add('collapsed');
+        tokensToggle.addEventListener('click', () => {
+            const isCollapsed = tokensBody.classList.toggle('collapsed');
+            tokensToggle.textContent = isCollapsed ? 'Show' : 'Hide';
         });
     }
 
