@@ -119,6 +119,7 @@ class HomebridgeBlink {
         try {
             // await this.blink.refreshCameraThumbnail();
             await this.blink.refreshData()
+            await this.updateMotionCharacteristics()
         } catch (err) {
             this.log.error(err)
         }
@@ -126,12 +127,44 @@ class HomebridgeBlink {
         this.timerID = setInterval(intervalPoll, BLINK_STATUS_EVENT_LOOP * 1000)
     }
 
+    async updateMotionCharacteristics (force = false) {
+        if (!this.blink || !Array.isArray(this.accessoryLookup)) return
+
+        const hapInstance = hap.hap
+        if (!hapInstance || !hapInstance.Service || !hapInstance.Characteristic) return
+
+        let motionEvents
+        try {
+            motionEvents = await this.blink.getMotionEvents(force, { backgroundRefresh: false })
+        } catch (err) {
+            this.log.error(err)
+            return
+        }
+        const events = motionEvents instanceof Map ? motionEvents : new Map()
+        const now = Date.now()
+
+        for (const device of this.accessoryLookup) {
+            if (!device?.accessory || device.cameraID === undefined) continue
+            const detected = device.applyMotionState(events.get(device.cameraID) || null, now)
+            const motionService = device.accessory.getService(hapInstance.Service.MotionSensor)
+            if (motionService) {
+                motionService.updateCharacteristic(
+                    hapInstance.Characteristic.MotionDetected,
+                    detected
+                )
+            }
+        }
+    }
+
     async setupBlink () {
         const hasTokens = Boolean(this.config.accessToken && this.config.refreshToken)
         const username = this.config.username || this.config.email
         const hasCredentials = Boolean(username && this.config.password)
         if (!hasTokens && !hasCredentials) {
-            throw Error('Blink requires either access/refresh tokens or your Blink username/password in the Homebridge configuration.')
+            throw Error(
+                'Blink requires either access/refresh tokens or your Blink username/password '
+                + 'in the Homebridge configuration.'
+            )
         }
         const uuidSeed = this.config.hardwareId || `${this.config.name || 'Blink'}`
         const clientUUID = this.config.hardwareId || this.api.hap.uuid.generate(uuidSeed)

@@ -230,7 +230,9 @@ class PluginUiServer extends HomebridgePluginUiServer {
             if (!response.ok) {
                 const reason = rawBody?.error_description || rawBody?.error || response.statusText;
                 lastError = new Error(reason || 'Blink token refresh failed.');
-                this.log.debug(`Blink token refresh attempt ${attempt.label || attempt.clientId} failed: ${lastError.message}`);
+                this.log.debug(
+                    `Blink token refresh attempt ${attempt.label || attempt.clientId} failed: ${lastError.message}`
+                );
                 continue;
             }
 
@@ -304,6 +306,27 @@ class PluginUiServer extends HomebridgePluginUiServer {
         }
 
         const bundle = api.getOAuthBundle();
+        const requiresTwoFactor = session?.tsv_state
+            || session?.account?.client_verification_required
+            || session?.account?.verification_required
+            || session?.account?.phone_verification_required
+            || session?.verification?.phone?.required
+            || session?.verification?.email?.required;
+
+        if (requiresTwoFactor && (!bundle || !bundle.access_token)) {
+            const phoneHint = session?.phone?.number
+                || (session?.phone?.last_4_digits ? `•••• ${session.phone.last_4_digits}` : null);
+            const message = phoneHint
+                ? `Two-factor verification required. Check ${phoneHint} for the PIN.`
+                : 'Two-factor verification required. Check your phone for the PIN.';
+            return {
+                status: '2fa-required',
+                message,
+                headers: session?.headers || session?.token_headers || null,
+                raw: session,
+            };
+        }
+
         if (!bundle || !bundle.access_token) {
             throw new Error('Blink did not return a valid access token. Verify your credentials and 2FA information.');
         }

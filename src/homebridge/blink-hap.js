@@ -251,6 +251,7 @@ class BlinkNetworkHAP extends BlinkNetwork {
     }
 
     async getSecuritySystemCurrentState() {
+        const now = Date.now();
         const currentSecurityState = this.getSecuritySystemState();
         if (currentSecurityState !== Characteristic.SecuritySystemCurrentState.DISARMED) {
             // if we are armed, check if we have motion
@@ -261,8 +262,8 @@ class BlinkNetworkHAP extends BlinkNetwork {
             const triggerStart = Math.max(this.armedAt, this.updatedAt) + (ARMED_DELAY * 1000);
             // const triggerStart = this.network.updatedAt - ARMED_DELAY*1000;
 
-            if (Date.now() >= triggerStart) {
-                const cameraMotionDetected = await Promise.all(this.cameras.map(c => c.getMotionDetected()));
+            if (now >= triggerStart) {
+                const cameraMotionDetected = this.cameras.map(c => c.getCachedMotionDetected(now));
                 if (cameraMotionDetected.includes(true)) {
                     return Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED;
                 }
@@ -395,7 +396,7 @@ class BlinkCameraHAP extends BlinkCamera {
 
         const motionService = this.accessory.getService(Service.MotionSensor);
         this.bindCharacteristic(motionService, Characteristic.MotionDetected,
-            'Motion', async () => await this.getMotionDetected(), null, BlinkDeviceHAP.formatBoolean);
+            'Motion', () => this.getCachedMotionDetected(), null, BlinkDeviceHAP.formatBoolean);
 
         // disabling sensor active as it isn't clear if this actually is needed, but causes a lot of load on homebridge
 

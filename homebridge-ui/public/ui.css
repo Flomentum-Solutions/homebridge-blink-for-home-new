@@ -105,7 +105,8 @@ header h1 {
 }
 
 .form-section input,
-.form-section textarea {
+.form-section textarea,
+.form-section select {
     width: 100%;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
     font-size: 0.95rem;
@@ -119,7 +120,8 @@ header h1 {
 }
 
 .form-section input:focus,
-.form-section textarea:focus {
+.form-section textarea:focus,
+.form-section select:focus {
     outline: none;
     border-color: #2563eb;
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
@@ -238,6 +240,53 @@ header h1 {
 
 .help li + li {
     margin-top: 0.6rem;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.pin-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.option-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem 1rem;
+}
+
+.checkbox {
+    display: flex;
+    gap: 0.6rem;
+    align-items: flex-start;
+    font-weight: 600;
+    color: #334155;
+}
+
+.checkbox span {
+    font-weight: 500;
+}
+
+.checkbox input {
+    margin-top: 0.3rem;
+}
+
+.checkbox-row {
+    display: flex;
+    align-items: center;
+    height: 100%;
+}
+
+.help.lead {
+    margin-top: 1.5rem;
+}
+
+.form-section select {
+    font-family: inherit;
+    cursor: pointer;
 }
 
 @media (prefers-color-scheme: dark) {
